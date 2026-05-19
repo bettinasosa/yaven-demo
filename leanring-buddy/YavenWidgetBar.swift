@@ -28,6 +28,8 @@ enum WidgetFocus: Equatable {
     case notifications
     case logCall
     case meeting
+    case agents
+    case approvals
 }
 
 // MARK: - Main bar
@@ -55,7 +57,7 @@ struct YavenWidgetBar: View {
     @State private var command: String = ""
     @FocusState private var isCommandFocused: Bool
 
-    private static let compactHeight: CGFloat        = 200
+    private static let compactHeight: CGFloat        = 380
     private static let chatHeight: CGFloat           = 420
     private static let automationsHeight: CGFloat    = 380
     private static let notificationsHeight: CGFloat  = 220
@@ -90,10 +92,8 @@ struct YavenWidgetBar: View {
             if focus != .chat { showingChatHistory = false }
             if focus != .logCall { automationDrillIn = nil }
         }
-        // When the shell requests focus (hotkey / notification tap), jump to chat.
+        // When the shell requests focus (hotkey / notification tap), focus input without switching views.
         .onChange(of: focusCoordinator.focusRequestID) { _, _ in
-            setWidgetFocus(.chat)
-            showingChatHistory = false
             DispatchQueue.main.async { isCommandFocused = true }
         }
     }
@@ -121,33 +121,176 @@ struct YavenWidgetBar: View {
         case .notifications: return Self.notificationsHeight
         case .logCall:       return Self.logCallHeight
         case .meeting:       return Self.meetingHeight
+        case .agents:        return Self.automationsHeight
+        case .approvals:     return Self.notificationsHeight
         }
     }
 
-    // MARK: - Compact row
+    // MARK: - Compact row (greeting dashboard)
 
     private var compactRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ActivityCompactCard(agentController: agentController) {
-                setWidgetFocus(.automations)
+        VStack(alignment: .leading, spacing: 0) {
+            // Icon nav bar
+            HStack {
+                HStack(spacing: 24) {
+                    iconNavButton(systemImage: "bolt.fill", label: "Activity", focus: .automations)
+                    iconNavButton(systemImage: "cloud.fill", label: "Agents", focus: .agents)
+                }
+                Spacer()
+                HStack(spacing: 24) {
+                    iconNavButton(systemImage: "bubble.left.fill", label: "Chat", focus: .chat)
+                    iconNavButton(
+                        systemImage: "checkmark.circle.fill",
+                        label: "Approvals",
+                        focus: .approvals,
+                        badgeCount: agentController.needsApprovalThreads.count
+                    )
+                }
             }
+            .padding(.horizontal, 28)
+            .padding(.top, -32)
 
-            AutomationsCompactCard(
-                logCallController: logCallController,
-                briefController: preCallBriefController
-            ) {
-                setWidgetFocus(.logCall)
-                automationDrillIn = nil
+            // Greeting + proactive suggestions
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Greeting
+                    Text(greetingText)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.top, 20)
+
+                    if !agentController.proactiveSuggestions.isEmpty {
+                        Text("Yaven found \(agentController.proactiveSuggestions.count) things worth acting on.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.40))
+                            .padding(.top, 4)
+                    }
+
+                    proactiveSuggestionGroups
+
+                    Spacer().frame(height: 24)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 28)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
 
-            ChatCompactCard(agentController: agentController) {
-                setWidgetFocus(.chat)
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let name = YavenUserContext.shared.firstName
+        let salutation: String
+        switch hour {
+        case 5..<12:  salutation = "Good morning"
+        case 12..<17: salutation = "Good afternoon"
+        case 17..<21: salutation = "Good evening"
+        default:      salutation = "Good night"
+        }
+        return name.isEmpty ? salutation : "\(salutation), \(name)"
+    }
+
+    @ViewBuilder
+    private var proactiveSuggestionGroups: some View {
+        let high   = agentController.proactiveSuggestions.filter { $0.confidence == .high }
+        let review = agentController.proactiveSuggestions.filter { $0.confidence == .needsReview }
+        let low    = agentController.proactiveSuggestions.filter { $0.confidence == .low }
+
+        if high.isEmpty && review.isEmpty && low.isEmpty {
+            Text("Ready when you are.")
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.22))
+                .padding(.top, 10)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                if !high.isEmpty {
+                    proactiveSuggestionSection(
+                        title: "High confidence",
+                        items: high,
+                        icon: "checkmark",
+                        color: .green.opacity(0.85)
+                    )
+                }
+                if !review.isEmpty {
+                    proactiveSuggestionSection(
+                        title: "Needs review",
+                        items: review,
+                        icon: "exclamationmark.triangle.fill",
+                        color: .orange
+                    )
+                }
+                if !low.isEmpty {
+                    proactiveSuggestionSection(
+                        title: "Low confidence",
+                        items: low,
+                        icon: "questionmark",
+                        color: .white.opacity(0.30)
+                    )
+                }
             }
         }
-        .padding(.horizontal, 32)
-        .padding(.top, 18)
-        .padding(.bottom, 38)   // clears the notch's 24 px bottom corner radius
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func proactiveSuggestionSection(
+        title: String,
+        items: [YavenProactiveSuggestion],
+        icon: String,
+        color: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white.opacity(0.28))
+                .tracking(0.6)
+                .padding(.top, 18)
+
+            ForEach(items) { item in
+                HStack(spacing: 9) {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(color)
+                        .frame(width: 14, alignment: .center)
+                    Text(item.title)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func iconNavButton(
+        systemImage: String,
+        label: String,
+        focus: WidgetFocus,
+        badgeCount: Int = 0
+    ) -> some View {
+        Button {
+            setWidgetFocus(focus)
+        } label: {
+            VStack(spacing: 5) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(.white.opacity(0.60))
+                    if badgeCount > 0 {
+                        Text("\(badgeCount)")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.orange))
+                            .offset(x: 8, y: -4)
+                    }
+                }
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.white.opacity(0.35))
+            }
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     // MARK: - Expanded wrapper
@@ -159,6 +302,7 @@ struct YavenWidgetBar: View {
             expandedContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(.top, -32)
     }
 
     private var expandedHeader: some View {
@@ -225,6 +369,8 @@ struct YavenWidgetBar: View {
         case .notifications: return "Notifications"
         case .logCall:       return automationDrillIn?.displayName ?? "Automations"
         case .meeting:       return "Process Meeting"
+        case .agents:        return "Agents"
+        case .approvals:     return "Approvals"
         case .none:          return ""
         }
     }
@@ -244,6 +390,10 @@ struct YavenWidgetBar: View {
             MeetingExpandedView { newHeight in
                 onPreferredHeightChange(newHeight + 44) // +44 for the expanded header
             }
+        case .agents:
+            agentsExpandedView
+        case .approvals:
+            approvalsExpandedView
         case .none:
             EmptyView()
         }
@@ -596,6 +746,45 @@ struct YavenWidgetBar: View {
         }
     }
 
+    // MARK: - Agents expanded
+
+    private var agentsExpandedView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                activitySection(
+                    title: "Running",
+                    threads: agentController.runningThreads,
+                    emptyText: "No agents running."
+                )
+                activitySection(
+                    title: "Recent",
+                    threads: Array(agentController.recentThreads.prefix(8)),
+                    emptyText: "No recent agent activity."
+                )
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
+        }
+    }
+
+    // MARK: - Approvals expanded
+
+    private var approvalsExpandedView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                activitySection(
+                    title: "Needs approval",
+                    threads: agentController.needsApprovalThreads,
+                    emptyText: "No pending approvals."
+                )
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
+        }
+    }
+
     // MARK: - Notifications expanded
 
     private var notificationsExpandedView: some View {
@@ -670,27 +859,165 @@ struct YavenWidgetBar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: - Agent file drawer data
+
+    private struct AgentFile: Identifiable {
+        let id: String
+        let name: String
+        let icon: String
+        let tagline: String
+        let automationItem: AutomationItem?
+        var isAvailable: Bool { automationItem != nil }
+    }
+
+    private struct AgentCategory: Identifiable {
+        let id: String
+        let name: String
+        let color: Color
+        let agents: [AgentFile]
+    }
+
+    private var drawerCategories: [AgentCategory] {[
+        AgentCategory(id: "crm", name: "CRM", color: .cyan, agents: [
+            AgentFile(id: "log-call",   name: "Log Sales Call",  icon: "phone.fill",              tagline: "Notes → HubSpot → follow-up",    automationItem: .logCall),
+            AgentFile(id: "deal-stage", name: "Deal Stage",      icon: "arrow.right.circle.fill", tagline: "Move deals through pipeline",    automationItem: nil),
+            AgentFile(id: "enrich",     name: "Enrich Contact",  icon: "person.badge.plus",       tagline: "Auto-research + update CRM",     automationItem: nil),
+            AgentFile(id: "followup",   name: "Follow-up",       icon: "envelope.badge.fill",     tagline: "Draft follow-ups from meetings", automationItem: nil),
+        ]),
+        AgentCategory(id: "comms", name: "Communication", color: Color(red: 0.45, green: 0.65, blue: 1.0), agents: [
+            AgentFile(id: "precall",     name: "Pre-Call Brief", icon: "doc.text.magnifyingglass",         tagline: "3-bullet brief before each call", automationItem: .preCallBrief),
+            AgentFile(id: "meeting",     name: "Meeting Notes",  icon: "sparkles",                         tagline: "Recordings → action items",       automationItem: .processMeeting),
+            AgentFile(id: "email-draft", name: "Email Drafter",  icon: "tray.full.fill",                   tagline: "Context-aware reply drafts",      automationItem: nil),
+            AgentFile(id: "slack",       name: "Slack Digest",   icon: "bubble.left.and.bubble.right",     tagline: "Summarise threads you missed",    automationItem: nil),
+        ]),
+        AgentCategory(id: "sales", name: "Sales", color: .orange, agents: [
+            AgentFile(id: "proposal", name: "Proposal Draft",  icon: "doc.badge.plus",        tagline: "Brief → full proposal in Gmail",    automationItem: .proposalDraft),
+            AgentFile(id: "invoice",  name: "Invoice Chase",   icon: "creditcard.fill",        tagline: "Polite payment chase emails",       automationItem: .invoiceChase),
+            AgentFile(id: "scope",    name: "Scope Guardian",  icon: "shield.lefthalf.filled", tagline: "Detect creep · draft response",     automationItem: .scopeGuardian),
+            AgentFile(id: "pricing",  name: "Pricing Analyst", icon: "chart.bar.fill",         tagline: "Compare deals · optimise pricing",  automationItem: nil),
+        ]),
+    ]}
+
+    // MARK: - File drawer view
+
     private var automationListContent: some View {
-        ScrollView {
-            VStack(spacing: 8) {
-                ForEach(AutomationItem.allCases) { item in
-                    AutomationListCard(
-                        displayName: item.displayName,
-                        icon: item.icon,
-                        tagline: item.tagline
-                    ) {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                            automationDrillIn = item
-                            if item != .processMeeting {
-                                onPreferredHeightChange(Self.logCallHeight)
-                            }
-                        }
-                    }
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 22) {
+                ForEach(drawerCategories) { category in
+                    drawerCategoryBlock(category)
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
         }
+    }
+
+    private func drawerCategoryBlock(_ category: AgentCategory) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Drawer divider tab
+            HStack(spacing: 7) {
+                Capsule()
+                    .fill(category.color)
+                    .frame(width: 20, height: 3)
+                Text(category.name.uppercased())
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(category.color)
+                    .tracking(1.4)
+                Spacer()
+                Text("\(category.agents.count)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.2))
+            }
+
+            // Two-column staggered grid — odd column offset creates the drawer fan effect.
+            let left  = category.agents.enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
+            let right = category.agents.enumerated().filter { $0.offset % 2 != 0 }.map(\.element)
+
+            HStack(alignment: .top, spacing: 8) {
+                VStack(spacing: 8) {
+                    ForEach(left)  { agentFileCard($0, color: category.color) }
+                }
+                VStack(spacing: 8) {
+                    Color.clear.frame(height: 22) // stagger offset
+                    ForEach(right) { agentFileCard($0, color: category.color) }
+                }
+            }
+        }
+    }
+
+    private func agentFileCard(_ file: AgentFile, color: Color) -> some View {
+        Button {
+            guard let item = file.automationItem else { return }
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                automationDrillIn = item
+                if item != .processMeeting { onPreferredHeightChange(Self.logCallHeight) }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                // Folder tab notch
+                HStack(alignment: .bottom, spacing: 0) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(file.isAvailable ? color.opacity(0.20) : Color.white.opacity(0.05))
+                        .frame(width: 38, height: 14)
+                        .overlay(
+                            Circle()
+                                .fill(file.isAvailable ? color.opacity(0.85) : Color.white.opacity(0.18))
+                                .frame(width: 5, height: 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 9)
+                        )
+                    Spacer()
+                    if !file.isAvailable {
+                        Text("SOON")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.18))
+                            .tracking(0.5)
+                            .padding(.trailing, 8)
+                            .padding(.bottom, 2)
+                    }
+                }
+                .padding(.horizontal, 8)
+
+                // Card body
+                VStack(alignment: .leading, spacing: 5) {
+                    Image(systemName: file.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(file.isAvailable ? color : .white.opacity(0.2))
+
+                    Text(file.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(file.isAvailable ? .white.opacity(0.88) : .white.opacity(0.3))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(file.tagline)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(file.isAvailable ? 0.36 : 0.18))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 14)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(file.isAvailable ? 0.06 : 0.025))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(
+                        file.isAvailable ? color.opacity(0.25) : Color.white.opacity(0.07),
+                        lineWidth: 0.75
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .opacity(file.isAvailable ? 1.0 : 0.6)
     }
 
     @ViewBuilder
@@ -872,7 +1199,7 @@ private struct AutomationsCompactCard: View {
 
     private var logCallStatusLabel: String {
         switch logCallController.phase {
-        case .idle:                    return "6 automations"
+        case .idle:                    return "12 agents · 3 workflows"
         case .collectingInput:         return "Log call: paste notes…"
         case .extracting:              return "Log call: analysing…"
         case .awaitingApproval(let a): return "Log call: \(a.count) actions ready"
@@ -880,55 +1207,6 @@ private struct AutomationsCompactCard: View {
         case .done:                    return "Log call: logged ✓"
         case .failed:                  return "Log call: failed — tap to retry"
         }
-    }
-}
-
-// MARK: - Automation list card
-
-private struct AutomationListCard: View {
-    // AutomationItem is defined inside YavenWidgetBar so we use the raw fields.
-    let displayName: String
-    let icon: String
-    let tagline: String
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.08))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: icon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.65))
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(displayName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.primary)
-                    Text(tagline)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .lineSpacing(1)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.25))
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.07)))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.09), lineWidth: 0.5))
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 }
 

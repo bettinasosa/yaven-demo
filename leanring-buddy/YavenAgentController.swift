@@ -34,6 +34,7 @@ final class YavenAgentController: ObservableObject {
     @Published private(set) var selectedThreadID: UUID?
     @Published private(set) var selectedApproval: YavenApprovalRequest?
     @Published var isActivityInboxVisible = false
+    @Published var proactiveSuggestions: [YavenProactiveSuggestion] = []
 
     private let store: YavenThreadStore
     private let taskRunner: YavenTaskRunner

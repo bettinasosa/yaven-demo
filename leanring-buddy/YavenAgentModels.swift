@@ -172,6 +172,25 @@ struct YavenExecutionResult: Equatable {
     }
 }
 
+// MARK: - Proactive suggestions
+
+struct YavenProactiveSuggestion: Identifiable {
+    enum Confidence {
+        case high
+        case needsReview
+        case low
+    }
+    let id: UUID
+    let title: String
+    let confidence: Confidence
+
+    init(id: UUID = UUID(), title: String, confidence: Confidence) {
+        self.id = id
+        self.title = title
+        self.confidence = confidence
+    }
+}
+
 enum YavenActionPlanParser {
     static func decodePlan(from responseText: String) throws -> YavenActionPlan {
         let jsonText = try extractJSONObject(from: responseText)

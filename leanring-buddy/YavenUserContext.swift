@@ -16,9 +16,10 @@ final class YavenUserContext {
 
     static let shared = YavenUserContext()
 
-    private static let roleKey     = "yavenUserRole"
-    private static let toolsKey    = "yavenUserToolKeys"
-    private static let entityIdKey = "yavenEntityId"
+    private static let roleKey      = "yavenUserRole"
+    private static let toolsKey     = "yavenUserToolKeys"
+    private static let entityIdKey  = "yavenEntityId"
+    private static let firstNameKey = "yavenUserFirstName"
 
     private init() {}
 
@@ -28,6 +29,8 @@ final class YavenUserContext {
         UserDefaults.standard.set(profile.role, forKey: Self.roleKey)
         let keys = profile.tools.map(\.composioKey)
         UserDefaults.standard.set(keys, forKey: Self.toolsKey)
+        let firstName = profile.name.components(separatedBy: " ").first ?? profile.name
+        UserDefaults.standard.set(firstName, forKey: Self.firstNameKey)
     }
 
     func saveEntityId(_ email: String) {
@@ -47,6 +50,10 @@ final class YavenUserContext {
     /// The Composio entity ID — the user's Google email saved at sign-in.
     var entityId: String {
         UserDefaults.standard.string(forKey: Self.entityIdKey) ?? ""
+    }
+
+    var firstName: String {
+        UserDefaults.standard.string(forKey: Self.firstNameKey) ?? ""
     }
 
     // MARK: - Derived signals

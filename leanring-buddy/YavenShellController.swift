@@ -42,7 +42,7 @@ final class YavenShellController: NSObject {
     private let panelFocusCoordinator = YavenPanelFocusCoordinator()
     private let agentController      = YavenAgentController()
     private let notchWindow          = YavenNotchWindow(
-        width: YavenNotchView.pillWidth,
+        width: YavenNotchView.panelWidth,
         height: YavenNotchView.pillHeight
     )
 
@@ -82,10 +82,7 @@ final class YavenShellController: NSObject {
         }
 
         notchWindow.onEscapePressed = { [weak self] in
-            guard let self else { return }
-            withAnimation(YavenNotchAnimation.close) {
-                self.expansion.close()
-            }
+            self?.expansion.close()
         }
 
         configureNotchWindow()
@@ -165,9 +162,7 @@ final class YavenShellController: NSObject {
 
     func togglePanel() {
         guard isStarted else { return }
-        withAnimation(YavenNotchAnimation.expansion(isExpanded: !expansion.isExpanded)) {
-            if expansion.isExpanded { expansion.close() } else { expansion.open() }
-        }
+        if expansion.isExpanded { expansion.close() } else { expansion.open() }
     }
 
     func showPanel() {
@@ -182,9 +177,7 @@ final class YavenShellController: NSObject {
 
     func hidePanel() {
         guard isStarted else { return }
-        withAnimation(YavenNotchAnimation.close) {
-            expansion.close()
-        }
+        expansion.close()
     }
 
     // MARK: - First-run flow
@@ -201,9 +194,7 @@ final class YavenShellController: NSObject {
         arrivalCoordinator.userChoseLater()
         firstRunPanelMode = .hidden
         refreshNotchContent()
-        withAnimation(YavenNotchAnimation.close) {
-            expansion.close()
-        }
+        expansion.close()
     }
 
     func finishFirstRunFlow() {
@@ -225,7 +216,7 @@ final class YavenShellController: NSObject {
     private func configureNotchWindow() {
         let notchView = makeNotchView()
         let hostingView = NSHostingView(rootView: notchView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: Layout.pillWidth, height: Layout.pillHeight)
+        hostingView.frame = NSRect(x: 0, y: 0, width: Layout.panelWidth, height: Layout.pillHeight)
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
@@ -273,16 +264,17 @@ final class YavenShellController: NSObject {
 
     private func collapsedFrame() -> NSRect {
         // screens.first is always the primary/menu-bar screen.
+        // Width is always panelWidth so the window never shifts left/right on expand/collapse.
         let screen = NSScreen.screens.first?.frame ?? NSScreen.main?.frame ?? .zero
         return NSRect(
-            x: screen.midX - Layout.pillWidth / 2,
+            x: screen.midX - Layout.panelWidth / 2,
             y: screen.maxY - Layout.pillHeight,
-            width: Layout.pillWidth,
+            width: Layout.panelWidth,
             height: Layout.pillHeight
         )
     }
 
-    private func expandedFrame(panelContentHeight: CGFloat = 200) -> NSRect {
+    private func expandedFrame(panelContentHeight: CGFloat = Layout.panelContentHeight) -> NSRect {
         let totalHeight = Layout.pillHeight + panelContentHeight
         let screen = NSScreen.screens.first?.frame ?? NSScreen.main?.frame ?? .zero
         return NSRect(
@@ -333,9 +325,7 @@ final class YavenShellController: NSObject {
             panelFocusCoordinator.requestInputFocus()
             return
         }
-        withAnimation(YavenNotchAnimation.open) {
-            expansion.open()
-        }
+        expansion.open()
     }
 
     private func openPanelCeremonial() {

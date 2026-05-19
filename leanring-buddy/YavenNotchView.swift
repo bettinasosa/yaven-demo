@@ -2,14 +2,14 @@
 //  YavenNotchView.swift
 //  leanring-buddy
 //
-//  Unified expanding notch view.
+//  Notch UI and animation ported directly from boring.notch (TheBoredTeam/boring.notch).
 //
-//  Collapsed — a 250 × 36 pill with the cloud/water mascot.
-//  Expanded  — the pill becomes the full-width header of a 640 × (36+content)
-//              container that drops the chat panel below it.
-//
-//  Open triggers: hover (300 ms delay) or tap.
-//  Close triggers: tap, Escape, or click outside.
+//  Key structure (exact boring.notch pattern):
+//    let styledContent = notchLayout
+//        .padding / .background / .clipShape / .overlay / .shadow
+//    styledContent
+//        .frame(height: isExpanded ? expandedHeight : nil)   ← spring drives this
+//        .animation(open/close spring, value: isExpanded)
 //
 
 import Combine
@@ -18,13 +18,11 @@ import SwiftUI
 // MARK: - Expansion state
 
 /// Owned by YavenShellController; observed by YavenNotchView.
-/// Lets the shell controller open/close and the view toggle by itself.
 @MainActor
 final class YavenNotchExpansion: ObservableObject {
     @Published var isExpanded: Bool = false {
         didSet { onExpandedChanged?(isExpanded) }
     }
-    /// Called on every isExpanded change. Set by YavenShellController to resize the window.
     var onExpandedChanged: ((Bool) -> Void)?
 
     func open() {
@@ -62,13 +60,14 @@ enum YavenPanelTab: CaseIterable, Equatable {
     }
 }
 
+// MARK: - Animation constants (exact values from boring.notch ContentView.swift)
+
 enum YavenNotchAnimation {
-    // Spring animations ported from boring.notch
-    static let openDuration: TimeInterval = 0.42
+    static let openDuration: TimeInterval  = 0.42
     static let closeDuration: TimeInterval = 0.45
 
-    static let open = Animation.spring(response: openDuration, dampingFraction: 0.8, blendDuration: 0)
-    static let close = Animation.spring(response: closeDuration, dampingFraction: 1.0, blendDuration: 0)
+    static let open  = Animation.spring(response: 0.42, dampingFraction: 0.8,  blendDuration: 0)
+    static let close = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
 
     static func expansion(isExpanded: Bool) -> Animation {
         isExpanded ? open : close
@@ -91,167 +90,115 @@ struct YavenNotchView: View {
     let onCleanupContinue: () -> Void
     let onDraftReply: (NeedsReplyItem) -> Void
 
-    @AppStorage(OnboardingAppearance.defaultsKey)
-    private var selectedAppearanceRaw = OnboardingAppearance.cloud.rawValue
+    // Layout constants referenced by YavenShellController.
+    static let pillWidth: CGFloat        = 250
+    static let pillHeight: CGFloat       = 36
+    static let panelWidth: CGFloat       = 640
+    static let panelContentHeight: CGFloat = 380
+    static let expandedHeight: CGFloat   = pillHeight + panelContentHeight // 416
 
     @State private var isHovering = false
-    @State private var hoverOpenTask: Task<Void, Never>? = nil
+    @State private var hoverTask: Task<Void, Never>?
     @State private var isPulse = false
 
-    // Layout constants kept here so the shell controller can reference them.
-    static let pillWidth: CGFloat = 250
-    static let pillHeight: CGFloat = 36
-    static let panelWidth: CGFloat = 640
-    static let panelContentHeight: CGFloat = 200
-    static let expandedHeight: CGFloat = pillHeight + panelContentHeight // 236
-
-    private enum NotchMetrics {
-        // Corner radii match boring.notch's cornerRadiusInsets
-        static let collapsedTopCornerRadius: CGFloat = 6
-        static let expandedTopCornerRadius: CGFloat = 19
-        static let collapsedBottomCornerRadius: CGFloat = 14
-        static let expandedBottomCornerRadius: CGFloat = 24
-        static let topCurveVerticalOffset: CGFloat = -1
-        static let topAnchorFillHeight: CGFloat = 2
-        static let horizontalPadding: CGFloat = 32
-    }
+    // Corner radii from boring.notch cornerRadiusInsets
+    private var topCornerRadius: CGFloat    { expansion.isExpanded ? 19 : 6  }
+    private var bottomCornerRadius: CGFloat { expansion.isExpanded ? 24 : 14 }
 
     var body: some View {
-        VStack(spacing: 0) {
-            pillStrip
-            if expansion.isExpanded {
-                panelContent
-                    .transition(
-                        .asymmetric(
-                            insertion: .scale(scale: 0.8, anchor: .top).combined(with: .opacity)
-                                .animation(YavenNotchAnimation.open),
-                            removal: .scale(scale: 0.8, anchor: .top).combined(with: .opacity)
-                                .animation(YavenNotchAnimation.close)
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                // ── boring.notch pattern (adapted) ───────────────────────────────
+                // frame comes before background so the black fill spans the full
+                // animated size (not just the VStack's collapsed natural height).
+                // clipShape comes after background so all fill is clipped with
+                // rounded corners — no straight-edge artefact during close.
+                notchLayout
+                    .padding(
+                        .horizontal,
+                        expansion.isExpanded ? 19 : 14
+                    )
+                    .padding([.horizontal, .bottom], expansion.isExpanded ? 12 : 0)
+                    .frame(width: expansion.isExpanded ? Self.panelWidth : Self.pillWidth,
+                           height: expansion.isExpanded ? Self.expandedHeight : Self.pillHeight,
+                           alignment: .top)
+                    .background(Color.black)
+                    .clipShape(
+                        NotchShape(
+                            topCornerRadius: topCornerRadius,
+                            bottomCornerRadius: bottomCornerRadius
                         )
                     )
+                    .overlay(alignment: .top) {
+                        // 1 px seam fill — prevents hairline gap at screen edge.
+                        Rectangle()
+                            .fill(Color.black)
+                            .frame(height: 1)
+                            .padding(.horizontal, topCornerRadius)
+                    }
+                    .shadow(
+                        color: expansion.isExpanded ? .black.opacity(0.7) : .clear,
+                        radius: 6
+                    )
+                    .animation(
+                        expansion.isExpanded ? YavenNotchAnimation.open : YavenNotchAnimation.close,
+                        value: expansion.isExpanded
+                    )
+                    .contentShape(Rectangle())
+                    .onHover  { handleHover($0) }
+                // ─────────────────────────────────────────────────────────────────
             }
         }
-        // Single clip — pill and panel share one seamless rounded shape.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.black)
-        .clipShape(
-            NotchShape(
-                topCornerRadius: topCornerRadius,
-                bottomCornerRadius: bottomCornerRadius,
-                topCurveVerticalOffset: NotchMetrics.topCurveVerticalOffset
-            )
-        )
-        // Shadow only when expanded — the collapsed window is too short to render it unclipped.
-        .shadow(
-            color: expansion.isExpanded ? .black.opacity(0.7) : .clear,
-            radius: 6
-        )
-        .overlay(alignment: .top) {
-            topAnchorFill
-        }
-        .animation(YavenNotchAnimation.expansion(isExpanded: expansion.isExpanded), value: expansion.isExpanded)
         .ignoresSafeArea(edges: .top)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                isPulse = true
-            }
-        }
-        .onChange(of: arrivalCoordinator.isBreathingEnabled) { _, isEnabled in
-            guard isEnabled else { return }
-            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
-                isPulse = true
-            }
-        }
-        // When the agent opens the activity inbox (e.g. notification tap), open the panel.
+        .onAppear { isPulse = true }
         .onChange(of: agentController.isActivityInboxVisible) { _, visible in
             if visible { expansion.open() }
         }
     }
 
-    // MARK: - Pill strip
-
-    /// The persistent top bar — full-width when expanded, pill-width when collapsed.
-    private var pillStrip: some View {
-        ZStack {
-            // Mascot — centered in expanded state, leading in collapsed.
-            HStack(spacing: 8) {
-                if expansion.isExpanded { Spacer() }
-                mascotIcon
-                    .scaleEffect(arrivalCoordinator.orbScale, anchor: .top)
-                    .opacity(arrivalCoordinator.orbOpacity)
-                if agentController.isWorking { workingDot }
-                if expansion.isExpanded { Spacer() }
-            }
-        }
-        .padding(.horizontal, NotchMetrics.horizontalPadding)
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.pillHeight)
-        .background(pillBackground)
-        // Hover scale — only while collapsed so the pill feels alive.
-        .scaleEffect(isHovering && !expansion.isExpanded ? 1.04 : 1.0, anchor: .top)
-        .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0), value: isHovering)
-        .onHover { hovering in
-            isHovering = hovering
-            if hovering && !expansion.isExpanded {
-                hoverOpenTask?.cancel()
-                hoverOpenTask = Task {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled, isHovering else { return }
-                    withAnimation(YavenNotchAnimation.open) {
-                        expansion.open()
-                    }
-                }
-            } else if !hovering {
-                hoverOpenTask?.cancel()
-                hoverOpenTask = nil
-            }
-        }
-        .onTapGesture {
-            hoverOpenTask?.cancel()
-            hoverOpenTask = nil
-            withAnimation(YavenNotchAnimation.expansion(isExpanded: !expansion.isExpanded)) {
-                if expansion.isExpanded { expansion.close() } else { expansion.open() }
-            }
-        }
-        .pointerCursor()
-    }
-
-    // MARK: - Pill internals
-
-    private var pillBackground: some View {
-        Color.black
-    }
-
-    /// Center strip anchored to the screen edge; padded so the raised top curves stay visible.
-    private var topAnchorFill: some View {
-        Rectangle()
-            .fill(Color.black)
-            .frame(height: NotchMetrics.topAnchorFillHeight)
-            .padding(.horizontal, NotchMetrics.horizontalPadding)
-            .offset(y: NotchMetrics.topCurveVerticalOffset)
-            .allowsHitTesting(false)
-    }
+    // MARK: - Notch layout
 
     @ViewBuilder
-    private var mascotIcon: some View {
-        switch selectedAppearance {
-        case .cloud:
-            Image("CloudMascot")
-                .resizable()
-                .interpolation(.none)
-                .scaledToFit()
-                .frame(width: 22, height: 22)
-        case .water:
-            Circle()
-                .fill(RadialGradient(
-                    colors: [Color.white.opacity(0.90), Color.white.opacity(0.25)],
-                    center: .topLeading,
-                    startRadius: 1,
-                    endRadius: 13
+    private var notchLayout: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Pill header row — always visible at collapsed height.
+            // Tap gesture lives here only so widget bar buttons don't close the panel.
+            HStack(spacing: 8) {
+                Spacer()
+                if agentController.isWorking {
+                    workingDot
+                }
+                Spacer()
+            }
+            .frame(height: Self.pillHeight)
+            .contentShape(Rectangle())
+            .onTapGesture { handleTap() }
+
+            // Panel content — inserted/removed with boring.notch's transition.
+            if expansion.isExpanded {
+                YavenWidgetBar(
+                    agentController: agentController,
+                    cleanupController: cleanupController,
+                    focusCoordinator: focusCoordinator,
+                    firstRunPanelMode: firstRunPanelMode,
+                    onPreferredHeightChange: onPreferredHeightChange,
+                    onFirstRunYes: onFirstRunYes,
+                    onFirstRunLater: onFirstRunLater,
+                    onCleanupSkip: onCleanupSkip,
+                    onCleanupContinue: onCleanupContinue,
+                    onDraftReply: onDraftReply
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.animation(.easeOut(duration: 0.20).delay(0.15)),
+                    removal:   .opacity.animation(.easeIn(duration: 0.10))
                 ))
-                .frame(width: 18, height: 18)
+                .allowsHitTesting(expansion.isExpanded)
+            }
         }
     }
+
+    // MARK: - Working indicator
 
     private var workingDot: some View {
         Circle()
@@ -263,138 +210,81 @@ struct YavenNotchView: View {
             )
     }
 
-    // MARK: - Panel content
+    // MARK: - Interaction handlers
 
-    private var panelContent: some View {
-        ZStack(alignment: .bottom) {
-            YavenWidgetBar(
-                agentController: agentController,
-                cleanupController: cleanupController,
-                focusCoordinator: focusCoordinator,
-                firstRunPanelMode: firstRunPanelMode,
-                onPreferredHeightChange: onPreferredHeightChange,
-                onFirstRunYes: onFirstRunYes,
-                onFirstRunLater: onFirstRunLater,
-                onCleanupSkip: onCleanupSkip,
-                onCleanupContinue: onCleanupContinue,
-                onDraftReply: onDraftReply
-            )
-            // Height is driven by the shell controller via onPreferredHeightChange —
-            // do not fix it here or expanded widgets will be clipped to the compact height.
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private func handleTap() {
+        hoverTask?.cancel()
+        hoverTask = nil
+        if expansion.isExpanded { expansion.close() } else { expansion.open() }
+    }
 
-            // Subtle glass fade at the bottom edge — breaks the fully-black look.
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: Color.white.opacity(0.03), location: 0.6),
-                    .init(color: Color.white.opacity(0.07), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 72)
-            .allowsHitTesting(false)
+    private func handleHover(_ hovering: Bool) {
+        isHovering = hovering
+        hoverTask?.cancel()
+        hoverTask = nil
+        guard hovering, !expansion.isExpanded else { return }
+        hoverTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, isHovering else { return }
+            expansion.open()
         }
-    }
-
-    private var selectedAppearance: OnboardingAppearance {
-        OnboardingAppearance(rawValue: selectedAppearanceRaw) ?? .cloud
-    }
-
-    private var topCornerRadius: CGFloat {
-        expansion.isExpanded ? NotchMetrics.expandedTopCornerRadius : NotchMetrics.collapsedTopCornerRadius
-    }
-
-    private var bottomCornerRadius: CGFloat {
-        expansion.isExpanded ? NotchMetrics.expandedBottomCornerRadius : NotchMetrics.collapsedBottomCornerRadius
     }
 }
 
-// MARK: - Notch shape
+// MARK: - NotchShape
 //
-// Ported from boring.notch / DynamicNotchKit.
-// The shape is wider at the very top (flush with the screen edge) and narrows
-// toward the bottom via quadratic bezier curves — the classic Dynamic Island look.
-//
-//  ┌──────────────────────────────┐  ← full width, flat at screen top
-//  │  ╭──────────────────────╮   │  ← topCornerRadius rounds the inner top
-//  │  │                      │   │
-//  │  │                      │   │
-//     ╯                      ╰      ← bottomCornerRadius sweeps the exit outward
+// Exact copy of boring.notch's NotchShape.swift (TheBoredTeam/boring.notch).
+// Original source: DynamicNotchKit by MrKai77.
 
 struct NotchShape: Shape {
-    /// Small rounding at the top inner corners (pill-meets-screen transition).
-    var topCornerRadius: CGFloat
-    /// Larger outward sweep at the bottom (where the pill exits the menu bar).
-    var bottomCornerRadius: CGFloat
-    /// Negative values lift the top shoulder so the curve appears to enter from above the screen edge.
-    var topCurveVerticalOffset: CGFloat
+    private var topCornerRadius: CGFloat
+    private var bottomCornerRadius: CGFloat
 
-    init(
-        topCornerRadius: CGFloat = 6,
-        bottomCornerRadius: CGFloat = 14,
-        topCurveVerticalOffset: CGFloat = 0
-    ) {
-        self.topCornerRadius = topCornerRadius
-        self.bottomCornerRadius = bottomCornerRadius
-        self.topCurveVerticalOffset = topCurveVerticalOffset
+    init(topCornerRadius: CGFloat? = nil, bottomCornerRadius: CGFloat? = nil) {
+        self.topCornerRadius    = topCornerRadius    ?? 6
+        self.bottomCornerRadius = bottomCornerRadius ?? 14
     }
 
-    // Lets SwiftUI animate corner radii when toggling open/closed.
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
-        get { .init(topCornerRadius, .init(bottomCornerRadius, topCurveVerticalOffset)) }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { .init(topCornerRadius, bottomCornerRadius) }
         set {
-            topCornerRadius = newValue.first
-            bottomCornerRadius = newValue.second.first
-            topCurveVerticalOffset = newValue.second.second
+            topCornerRadius    = newValue.first
+            bottomCornerRadius = newValue.second
         }
     }
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let tr = topCornerRadius
-        let br = bottomCornerRadius
-        let topY = rect.minY + topCurveVerticalOffset
 
-        // Top-left shoulder starts slightly above the window so the visible curve meets the screen edge.
-        path.move(to: CGPoint(x: rect.minX, y: topY))
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
 
-        // Top-left inner corner (small convex rounding).
         path.addQuadCurve(
-            to:      CGPoint(x: rect.minX + tr, y: topY + tr),
-            control: CGPoint(x: rect.minX + tr, y: topY)
+            to:      CGPoint(x: rect.minX + topCornerRadius, y: rect.minY + topCornerRadius),
+            control: CGPoint(x: rect.minX + topCornerRadius, y: rect.minY)
         )
 
-        // Left inner edge ↓
-        path.addLine(to: CGPoint(x: rect.minX + tr, y: rect.maxY - br))
+        path.addLine(to: CGPoint(x: rect.minX + topCornerRadius, y: rect.maxY - bottomCornerRadius))
 
-        // Bottom-left exit sweep (concave outward — the Dynamic Island corner).
         path.addQuadCurve(
-            to:      CGPoint(x: rect.minX + tr + br, y: rect.maxY),
-            control: CGPoint(x: rect.minX + tr,      y: rect.maxY)
+            to:      CGPoint(x: rect.minX + topCornerRadius + bottomCornerRadius, y: rect.maxY),
+            control: CGPoint(x: rect.minX + topCornerRadius, y: rect.maxY)
         )
 
-        // Bottom edge →
-        path.addLine(to: CGPoint(x: rect.maxX - tr - br, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - topCornerRadius - bottomCornerRadius, y: rect.maxY))
 
-        // Bottom-right exit sweep.
         path.addQuadCurve(
-            to:      CGPoint(x: rect.maxX - tr,      y: rect.maxY - br),
-            control: CGPoint(x: rect.maxX - tr,      y: rect.maxY)
+            to:      CGPoint(x: rect.maxX - topCornerRadius, y: rect.maxY - bottomCornerRadius),
+            control: CGPoint(x: rect.maxX - topCornerRadius, y: rect.maxY)
         )
 
-        // Right inner edge ↑
-        path.addLine(to: CGPoint(x: rect.maxX - tr, y: topY + tr))
+        path.addLine(to: CGPoint(x: rect.maxX - topCornerRadius, y: rect.minY + topCornerRadius))
 
-        // Top-right inner corner.
         path.addQuadCurve(
-            to:      CGPoint(x: rect.maxX,      y: topY),
-            control: CGPoint(x: rect.maxX - tr, y: topY)
+            to:      CGPoint(x: rect.maxX, y: rect.minY),
+            control: CGPoint(x: rect.maxX - topCornerRadius, y: rect.minY)
         )
 
-        // Top edge ← (back to the lifted origin)
-        path.addLine(to: CGPoint(x: rect.minX, y: topY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
 
         return path
     }
