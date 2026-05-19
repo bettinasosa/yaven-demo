@@ -7,7 +7,7 @@
 //  Architecture:
 //  - One YavenNotchWindow lives at the top-centre of the screen.
 //  - Collapsed: 250 × 36 pill in the menu bar area.
-//  - Expanded: 560 × (36+content) — pill header + full chat panel, growing downward.
+//  - Expanded: 640 × (36+content) — pill header + full chat panel, growing downward.
 //  - YavenNotchExpansion is the shared state; the view and the shell controller
 //    both read/write it, while the shell controller resizes the window on changes.
 //
@@ -300,46 +300,30 @@ final class YavenShellController: NSObject {
 
     // MARK: - Window animations
 
-    private func expandNotchWindow(duration: TimeInterval = 0.40) {
-        let targetFrame = expandedFrame()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            notchWindow.animator().setFrame(targetFrame, display: true)
-        }
+    private func expandNotchWindow() {
+        // Set frame instantly — SwiftUI spring drives all visible animation, exactly like boring.notch.
+        // Animating the NSWindow frame concurrently with SwiftUI causes the jump/gap artefact.
+        notchWindow.setFrame(expandedFrame(), display: true)
         notchWindow.makeKeyAndOrderFront(nil)
         notchWindow.makeKey()
         installClickOutsideMonitors()
-        // Request text field focus once the animation has settled.
         Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(Layout.openDuration * 1_000_000_000))
             self?.panelFocusCoordinator.requestInputFocus()
         }
     }
 
     private func collapseNotchWindow() {
-        let targetFrame = collapsedFrame()
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Layout.closeDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            notchWindow.animator().setFrame(targetFrame, display: true)
-        }
+        notchWindow.setFrame(collapsedFrame(), display: true)
         removeClickOutsideMonitors()
     }
 
     private func handlePreferredHeightChange(_ preferredHeight: CGFloat) {
         guard expansion.isExpanded else { return }
         let targetFrame = expandedFrame(panelContentHeight: preferredHeight)
-        // notchWindow.frame reflects the model (target) frame even mid-animation.
-        // Skip if the target matches — prevents the onAppear callback in YavenWidgetBar
-        // from kicking off a second animation that interrupts the initial expansion.
         guard abs(targetFrame.height - notchWindow.frame.height) > 2
            || abs(targetFrame.width  - notchWindow.frame.width)  > 2 else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Layout.openDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            notchWindow.animator().setFrame(targetFrame, display: true)
-        }
+        notchWindow.setFrame(targetFrame, display: true)
     }
 
     // MARK: - Private open helpers
@@ -357,19 +341,11 @@ final class YavenShellController: NSObject {
     private func openPanelCeremonial() {
         firstRunPanelMode = .firstMessage
         refreshNotchContent()
-        // Animate with a slightly slower duration for drama.
-        let wasClosed = !expansion.isExpanded
+        if !expansion.isExpanded {
+            notchWindow.setFrame(expandedFrame(), display: true)
+        }
         withAnimation(.easeInOut(duration: Layout.ceremonialDuration)) {
             expansion.open()
-        }
-        if wasClosed {
-            // Override the window frame animation with the ceremonial timing.
-            let targetFrame = expandedFrame()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Layout.ceremonialDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                notchWindow.animator().setFrame(targetFrame, display: true)
-            }
         }
     }
 

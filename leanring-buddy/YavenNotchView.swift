@@ -5,7 +5,7 @@
 //  Unified expanding notch view.
 //
 //  Collapsed — a 250 × 36 pill with the cloud/water mascot.
-//  Expanded  — the pill becomes the full-width header of a 560 × (36+content)
+//  Expanded  — the pill becomes the full-width header of a 640 × (36+content)
 //              container that drops the chat panel below it.
 //
 //  Open triggers: hover (300 ms delay) or tap.
@@ -63,11 +63,12 @@ enum YavenPanelTab: CaseIterable, Equatable {
 }
 
 enum YavenNotchAnimation {
-    static let openDuration: TimeInterval = 0.40
-    static let closeDuration: TimeInterval = 0.35
+    // Spring animations ported from boring.notch
+    static let openDuration: TimeInterval = 0.42
+    static let closeDuration: TimeInterval = 0.45
 
-    static let open = Animation.easeInOut(duration: openDuration)
-    static let close = Animation.easeInOut(duration: closeDuration)
+    static let open = Animation.spring(response: openDuration, dampingFraction: 0.8, blendDuration: 0)
+    static let close = Animation.spring(response: closeDuration, dampingFraction: 1.0, blendDuration: 0)
 
     static func expansion(isExpanded: Bool) -> Animation {
         isExpanded ? open : close
@@ -100,13 +101,14 @@ struct YavenNotchView: View {
     // Layout constants kept here so the shell controller can reference them.
     static let pillWidth: CGFloat = 250
     static let pillHeight: CGFloat = 36
-    static let panelWidth: CGFloat = 560
+    static let panelWidth: CGFloat = 640
     static let panelContentHeight: CGFloat = 200
     static let expandedHeight: CGFloat = pillHeight + panelContentHeight // 236
 
     private enum NotchMetrics {
-        static let collapsedTopCornerRadius: CGFloat = 7
-        static let expandedTopCornerRadius: CGFloat = 21
+        // Corner radii match boring.notch's cornerRadiusInsets
+        static let collapsedTopCornerRadius: CGFloat = 6
+        static let expandedTopCornerRadius: CGFloat = 19
         static let collapsedBottomCornerRadius: CGFloat = 14
         static let expandedBottomCornerRadius: CGFloat = 24
         static let topCurveVerticalOffset: CGFloat = -1
@@ -121,9 +123,9 @@ struct YavenNotchView: View {
                 panelContent
                     .transition(
                         .asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity)
+                            insertion: .scale(scale: 0.8, anchor: .top).combined(with: .opacity)
                                 .animation(YavenNotchAnimation.open),
-                            removal: .move(edge: .top).combined(with: .opacity)
+                            removal: .scale(scale: 0.8, anchor: .top).combined(with: .opacity)
                                 .animation(YavenNotchAnimation.close)
                         )
                     )
@@ -139,10 +141,14 @@ struct YavenNotchView: View {
                 topCurveVerticalOffset: NotchMetrics.topCurveVerticalOffset
             )
         )
+        // Shadow only when expanded — the collapsed window is too short to render it unclipped.
+        .shadow(
+            color: expansion.isExpanded ? .black.opacity(0.7) : .clear,
+            radius: 6
+        )
         .overlay(alignment: .top) {
             topAnchorFill
         }
-        .compositingGroup()
         .animation(YavenNotchAnimation.expansion(isExpanded: expansion.isExpanded), value: expansion.isExpanded)
         .ignoresSafeArea(edges: .top)
         .onAppear {
@@ -183,7 +189,7 @@ struct YavenNotchView: View {
         .background(pillBackground)
         // Hover scale — only while collapsed so the pill feels alive.
         .scaleEffect(isHovering && !expansion.isExpanded ? 1.04 : 1.0, anchor: .top)
-        .animation(.spring(response: 0.28, dampingFraction: 0.74), value: isHovering)
+        .animation(.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
             if hovering && !expansion.isExpanded {
