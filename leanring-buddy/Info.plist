@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Yaven needs automation access to read and organize your Mail inbox.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Yaven needs screen recording access to include screenshots as chat context.</string>
+	<key>SUPublicEDKey</key>
+	<string>/l3d2rw5ZZFRU3AadP/w2Zf8FHfhA6bKv16BQOV5OSk=</string>
+</dict>
+</plist>
