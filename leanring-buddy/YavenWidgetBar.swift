@@ -32,6 +32,32 @@ enum WidgetFocus: Equatable {
     case approvals
 }
 
+// MARK: - Home screen data
+
+private let homePrimaryBlue = Color(red: 0.22, green: 0.55, blue: 1.0)
+
+private enum HomeLogo {
+    case sfSymbol(String, Color)
+    case composio(String)
+}
+
+private struct HomeNeedsYouItem: Identifiable {
+    let id = UUID()
+    let logo: HomeLogo
+    let title: String
+    let source: String
+    let due: String
+    let urgency: HomeNeedsYouUrgency
+}
+
+private enum HomeNeedsYouUrgency { case overdue, today, upcoming }
+
+private let homeNeedsYouFakeData: [HomeNeedsYouItem] = [
+    HomeNeedsYouItem(logo: .composio("gmail"),       title: "Follow-up to Jamie Chen",    source: "Meeting Loop",      due: "Overdue",   urgency: .overdue),
+    HomeNeedsYouItem(logo: .composio("linkedin"),    title: "LinkedIn batch — 10 drafts", source: "LinkedIn Outreach", due: "Due today",  urgency: .today),
+    HomeNeedsYouItem(logo: .composio("granola_mcp"), title: "Product sync — notes",        source: "Meeting Loop",      due: "Due today",  urgency: .today),
+]
+
 // MARK: - Main bar
 
 struct YavenWidgetBar: View {
@@ -55,6 +81,7 @@ struct YavenWidgetBar: View {
     @State private var automationDrillIn: AutomationItem? = nil
     @State private var showingChatHistory = false
     @State private var command: String = ""
+    @State private var homeNeedsYouItems: [HomeNeedsYouItem] = homeNeedsYouFakeData
     @FocusState private var isCommandFocused: Bool
 
     private static let compactHeight: CGFloat        = 380
@@ -126,7 +153,7 @@ struct YavenWidgetBar: View {
         }
     }
 
-    // MARK: - Compact row (greeting dashboard)
+    // MARK: - Compact row (home screen)
 
     private var compactRow: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -150,32 +177,34 @@ struct YavenWidgetBar: View {
             .padding(.horizontal, 28)
             .padding(.top, -32)
 
-            // Greeting + proactive suggestions
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Greeting
-                    Text(greetingText)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.top, 20)
-
-                    if !agentController.proactiveSuggestions.isEmpty {
-                        Text("Yaven found \(agentController.proactiveSuggestions.count) things worth acting on.")
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.40))
-                            .padding(.top, 4)
-                    }
-
-                    proactiveSuggestionGroups
-
+                    homeHeader
+                    homeQuickWinsSection
+                    homeNeedsYouSection
                     Spacer().frame(height: 24)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 28)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Home header
+
+    private var homeHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(greetingText)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(.white)
+            Text("Tuesday 20 May · 4 meetings today · \(homeNeedsYouItems.count + 3) things need you")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.32))
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+        .padding(.bottom, 22)
     }
 
     private var greetingText: String {
@@ -191,82 +220,236 @@ struct YavenWidgetBar: View {
         return name.isEmpty ? salutation : "\(salutation), \(name)"
     }
 
-    @ViewBuilder
-    private var proactiveSuggestionGroups: some View {
-        let high   = agentController.proactiveSuggestions.filter { $0.confidence == .high }
-        let review = agentController.proactiveSuggestions.filter { $0.confidence == .needsReview }
-        let low    = agentController.proactiveSuggestions.filter { $0.confidence == .low }
+    // MARK: - Quick wins section
 
-        if high.isEmpty && review.isEmpty && low.isEmpty {
-            if agentController.isScanningSuggestions {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.mini).tint(.white.opacity(0.40))
-                    Text("Scanning your emails and calendar…")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.35))
-                }
-                .padding(.top, 10)
-            } else {
-                Text("Ready when you are.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.22))
-                    .padding(.top, 10)
+    private var homeQuickWinsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Quick wins")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
+                Text("Yaven has done the work — these just need you.")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.white.opacity(0.32))
             }
-        } else {
-            VStack(alignment: .leading, spacing: 0) {
-                if !high.isEmpty {
-                    proactiveSuggestionSection(
-                        title: "High confidence",
-                        items: high,
-                        icon: "checkmark",
-                        color: .green.opacity(0.85)
-                    )
+            .padding(.horizontal, 28)
+            .padding(.bottom, 12)
+
+            VStack(spacing: 3) {
+                // Highlight item — call with Jamie Chen
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(homePrimaryBlue.opacity(0.60))
+                        .frame(width: 2.5)
+                    HStack(spacing: 10) {
+                        homeLogoView(.sfSymbol("phone.fill", homePrimaryBlue))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Call ended with Jamie Chen")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.88))
+                                .lineLimit(1)
+                            Text("Notes drafted")
+                                .font(.system(size: 11))
+                                .foregroundColor(Color(red: 0.40, green: 0.85, blue: 0.60).opacity(0.80))
+                        }
+                        Spacer(minLength: 4)
+                        HStack(spacing: 5) {
+                            homeActionButton("Add to Notion", filled: true)  { }
+                            homeActionButton("Set up flow?",  filled: false) { setWidgetFocus(.agents) }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                 }
-                if !review.isEmpty {
-                    proactiveSuggestionSection(
-                        title: "Needs review",
-                        items: review,
-                        icon: "exclamationmark.triangle.fill",
-                        color: .orange
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(homePrimaryBlue.opacity(0.07)))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.horizontal, 20)
+
+                // Slack messages
+                homeQuickWinRow(
+                    logo: .composio("slack"),
+                    title: "8 Slack messages",
+                    descriptor: "Drafts ready",
+                    descriptorIsReady: true,
+                    buttonLabel: "Review & send"
+                )
+
+                // Emails
+                homeQuickWinRow(
+                    logo: .composio("gmail"),
+                    title: "15 emails",
+                    descriptor: "Drafts ready",
+                    descriptorIsReady: true,
+                    buttonLabel: "Review & send"
+                )
+
+                // Context shortcut
+                homeQuickWinRow(
+                    logo: .sfSymbol("arrow.uturn.left.circle.fill", Color.white.opacity(0.40)),
+                    title: "Claude Code — auth bug fix",
+                    descriptor: "Where you left off",
+                    descriptorIsReady: false,
+                    buttonLabel: "Jump back in"
+                )
+            }
+        }
+        .padding(.bottom, 22)
+    }
+
+    private func homeQuickWinRow(
+        logo: HomeLogo,
+        title: String,
+        descriptor: String,
+        descriptorIsReady: Bool,
+        buttonLabel: String
+    ) -> some View {
+        HStack(spacing: 10) {
+            homeLogoView(logo)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.82))
+                    .lineLimit(1)
+                Text(descriptor)
+                    .font(.system(size: 11))
+                    .foregroundColor(
+                        descriptorIsReady
+                            ? Color(red: 0.40, green: 0.85, blue: 0.60).opacity(0.75)
+                            : Color.white.opacity(0.30)
                     )
-                }
-                if !low.isEmpty {
-                    proactiveSuggestionSection(
-                        title: "Low confidence",
-                        items: low,
-                        icon: "questionmark",
-                        color: .white.opacity(0.30)
-                    )
-                }
+            }
+            Spacer(minLength: 4)
+            homeActionButton(buttonLabel, filled: true) { }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 9)
+    }
+
+    @ViewBuilder
+    private func homeLogoView(_ logo: HomeLogo) -> some View {
+        switch logo {
+        case .sfSymbol(let name, let tint):
+            ZStack {
+                Circle().fill(tint.opacity(0.14)).frame(width: 32, height: 32)
+                Image(systemName: name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(tint.opacity(0.90))
+            }
+        case .composio(let key):
+            ZStack {
+                Circle().fill(Color.white).frame(width: 32, height: 32)
+                AsyncSVGImage(urlString: "https://logos.composio.dev/api/\(key)", size: 18)
             }
         }
     }
 
-    private func proactiveSuggestionSection(
-        title: String,
-        items: [YavenProactiveSuggestion],
-        icon: String,
-        color: Color
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white.opacity(0.28))
-                .tracking(0.6)
-                .padding(.top, 18)
+    private func homeActionButton(_ label: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(filled ? .white.opacity(0.88) : homePrimaryBlue.opacity(0.90))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(filled ? Color.white.opacity(0.14) : homePrimaryBlue.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(filled ? Color.white.opacity(0.16) : homePrimaryBlue.opacity(0.28), lineWidth: 0.5)
+                )
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
 
-            ForEach(items) { item in
-                HStack(spacing: 9) {
-                    Image(systemName: icon)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(color)
-                        .frame(width: 14, alignment: .center)
-                    Text(item.title)
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.75))
-                        .lineLimit(1)
+    // MARK: - Needs you section
+
+    private var homeNeedsYouSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Needs you")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white.opacity(0.85))
+                .padding(.horizontal, 28)
+                .padding(.bottom, 12)
+
+            VStack(spacing: 3) {
+                ForEach(homeNeedsYouItems) { item in
+                    homeNeedsYouRow(item)
+                        .transition(.asymmetric(
+                            insertion: .opacity,
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
                 }
             }
+            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: homeNeedsYouItems.map(\.id.uuidString).joined())
+
+            Button { setWidgetFocus(.approvals) } label: {
+                Text("See all on your Desk →")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.28))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .padding(.horizontal, 28)
+            .padding(.top, 12)
+        }
+    }
+
+    private func homeNeedsYouRow(_ item: HomeNeedsYouItem) -> some View {
+        HStack(spacing: 10) {
+            homeLogoView(item.logo)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.82))
+                    .lineLimit(1)
+                HStack(spacing: 0) {
+                    Text(item.source + " · ")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.28))
+                    Text(item.due)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(dueColor(item.urgency))
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    homeNeedsYouItems.removeAll { $0.id == item.id }
+                }
+            } label: {
+                Text("Approve")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(red: 0.40, green: 0.88, blue: 0.60).opacity(0.90))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color(red: 0.40, green: 0.88, blue: 0.60).opacity(0.10))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Color(red: 0.40, green: 0.88, blue: 0.60).opacity(0.28), lineWidth: 0.5)
+                    )
+                    .fixedSize()
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 9)
+    }
+
+    private func dueColor(_ urgency: HomeNeedsYouUrgency) -> Color {
+        switch urgency {
+        case .overdue:  return .red.opacity(0.85)
+        case .today:    return Color(red: 0.95, green: 0.75, blue: 0.30)
+        case .upcoming: return .white.opacity(0.35)
         }
     }
 
@@ -430,29 +613,42 @@ struct YavenWidgetBar: View {
     // MARK: - Chat expanded
 
     private var chatExpandedView: some View {
-        VStack(spacing: 0) {
+        let showEmpty = agentController.chatMessages.isEmpty
+            && agentController.state == .idle
+            && agentController.currentPlan == nil
+            && agentController.executionResult == nil
+            && agentController.errorMessage == nil
+
+        return VStack(spacing: 0) {
             if showingChatHistory {
-                chatHistoryList
+                fakeChatConversation
+            } else if showEmpty {
+                VStack(spacing: 0) {
+                    Spacer()
+                    emptyChatState
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                chatInputBar
             } else {
                 chatMessagesArea
                 chatInputBar
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            LinearGradient(
+                colors: [Color.clear, Color.white.opacity(0.022)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
     }
 
     private var chatMessagesArea: some View {
         ScrollViewReader { proxy in
             ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        if agentController.chatMessages.isEmpty
-                            && agentController.state == .idle
-                            && agentController.currentPlan == nil
-                            && agentController.executionResult == nil
-                            && agentController.errorMessage == nil {
-                            emptyChat
-                        }
-
                         chatStatusLine
 
                         ForEach(agentController.chatMessages) { msg in
@@ -484,58 +680,166 @@ struct YavenWidgetBar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Chat history list
+    // MARK: - Empty chat state
 
-    private var chatHistoryList: some View {
-        let chatThreads = agentController.recentThreads.filter { $0.kind == .chat }
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                if chatThreads.isEmpty {
-                    Text("No past conversations yet.")
+    private var emptyChatState: some View {
+        VStack(spacing: 14) {
+            YavenOnboardingMascotView(appearance: .cloud, size: 48)
+                .opacity(0.80)
+
+            Text("What do you need?")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.32))
+
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    chatChip("Draft an email")
+                    chatChip("Research a topic")
+                    chatChip("Summarise something")
+                }
+                HStack(spacing: 8) {
+                    chatChip("Set up a new flow")
+                    chatChip("Just ask…")
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .opacity(command.isEmpty ? 1 : 0)
+        .animation(.easeOut(duration: 0.15), value: command.isEmpty)
+    }
+
+    private func chatChip(_ label: String) -> some View {
+        Button {
+            command = label
+            isCommandFocused = true
+        } label: {
+            Text(label)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(.white.opacity(0.42))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.white.opacity(0.07)))
+                .overlay(Capsule().stroke(Color.white.opacity(0.11), lineWidth: 0.5))
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    // MARK: - Fake conversation (toggled by history icon)
+
+    private var fakeChatConversation: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                // User message
+                HStack {
+                    Spacer(minLength: 48)
+                    Text("Can you draft an outreach email to the person I'm looking at?")
                         .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .padding(.top, 8)
-                } else {
-                    ForEach(chatThreads) { thread in
-                        Button {
-                            agentController.selectThread(thread.id)
-                            showingChatHistory = false
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(thread.title)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                if !thread.lastPreview.isEmpty {
-                                    Text(thread.lastPreview)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
+                        .foregroundColor(.white)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color(red: 0.22, green: 0.55, blue: 1.0))
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.bottom, 20)
+
+                // Yaven response
+                HStack(alignment: .top, spacing: 10) {
+                    YavenOnboardingMascotView(appearance: .cloud, size: 20)
+                        .opacity(0.72)
+                        .padding(.top, 2)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Intro
+                        Text("The person on your screen is **Sarah Mitchell**, Head of Growth at Loopkit — a Series B workflow automation company based in London. Here's what I found:")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.82))
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        // Research card
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("From her LinkedIn she's been in the role for 8 months, joined from Intercom, and has been posting about scaling outbound recently. Loopkit just announced a partnership with HubSpot two weeks ago — good timing for an intro.\n\nI pulled her direct email from Apollo: **s.mitchell@loopkit.io**\n\nI also checked your Notion and pulled your current service offering and a few recent client results to shape the pitch.")
+                                .font(.system(size: 12.5))
+                                .foregroundColor(.white.opacity(0.68))
+                                .lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: 6) {
+                                fakeSourceTag("LinkedIn", color: Color(red: 0.10, green: 0.46, blue: 0.82))
+                                fakeSourceTag("Apollo",   color: Color(red: 0.42, green: 0.25, blue: 0.85))
+                                fakeSourceTag("Notion",   color: Color(white: 0.55))
+                            }
+                        }
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.05)))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+
+                        // Email draft card
+                        HStack(spacing: 0) {
+                            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                .fill(Color(red: 0.22, green: 0.55, blue: 1.0).opacity(0.65))
+                                .frame(width: 2.5)
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text("DRAFT")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(Color(red: 0.22, green: 0.55, blue: 1.0).opacity(0.80))
+                                        .tracking(0.8)
+                                    Spacer()
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.22))
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Subject: Loopkit x [Your Company]")
+                                        .font(.system(size: 12, weight: .semibold).italic())
+                                        .foregroundColor(.white.opacity(0.72))
+
+                                    Text("Hi Sarah,\n\nSaw the HubSpot announcement — congrats on that, big distribution move.\n\nI work with growth teams at companies like yours on outbound systems that remove the manual research and sequencing work from the process entirely. A recent client went from 8 hours a week on prospecting to under one — same output, fraction of the time.\n\nWorth a 20 minute call to see if there's a fit?\n\n[Your name]")
+                                        .font(.system(size: 12).italic())
+                                        .foregroundColor(.white.opacity(0.60))
+                                        .lineSpacing(3)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.07)))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.09), lineWidth: 0.5))
+                            .padding(12)
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.08)))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+
+                        // Follow-up line
+                        Text("Want me to tweak the tone, adjust the pitch angle, or send it?")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.82))
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var emptyChat: some View {
-        Text("Yaven sees your screens only when you submit. Simple open/send requests run right away; riskier actions pause for review.")
-            .font(.system(size: 13))
-            .foregroundColor(.secondary)
-            .lineSpacing(3)
-            .padding(.top, 4)
+    private func fakeSourceTag(_ name: String, color: Color) -> some View {
+        Text(name)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(color.opacity(0.90))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(color.opacity(0.12)))
+            .overlay(Capsule().stroke(color.opacity(0.25), lineWidth: 0.5))
     }
 
     @ViewBuilder
@@ -628,7 +932,7 @@ struct YavenWidgetBar: View {
 
     private var chatInputBar: some View {
         HStack(spacing: 8) {
-            TextField("Ask Yaven anything…", text: $command)
+            TextField("Ask me anything or describe a task…", text: $command)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundColor(.white)
