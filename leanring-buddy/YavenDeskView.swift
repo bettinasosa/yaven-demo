@@ -156,8 +156,17 @@ private let fakeDeskItems: [DeskItem] = [
 // MARK: - Main view
 
 struct YavenDeskView: View {
+    let closeReviewRequestID: UUID
+    let onReviewStateChange: (Bool) -> Void
+    let onPreferredHeightChange: (CGFloat) -> Void
+
     @State private var approvedIDs: Set<String> = []
     @State private var viewingArtifact: DeskItem? = nil
+
+    private enum Layout {
+        static let listHeight: CGFloat = 420
+        static let reviewHeight: CGFloat = 620
+    }
 
     private var visibleItems: [DeskItem] {
         fakeDeskItems.filter { !approvedIDs.contains($0.id) }
@@ -170,7 +179,6 @@ struct YavenDeskView: View {
             if let item = viewingArtifact {
                 ArtifactView(
                     item: item,
-                    onClose: { withAnimation(.easeInOut(duration: 0.22)) { viewingArtifact = nil } },
                     onApprove: { approve(item) }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -181,6 +189,13 @@ struct YavenDeskView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: viewingArtifact?.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { reportReviewState() }
+        .onChange(of: viewingArtifact?.id) { _, _ in
+            reportReviewState()
+        }
+        .onChange(of: closeReviewRequestID) { _, _ in
+            closeReviewIfNeeded()
+        }
     }
 
     private var mainList: some View {
@@ -242,6 +257,19 @@ struct YavenDeskView: View {
                 viewingArtifact = nil
             }
         }
+    }
+
+    private func closeReviewIfNeeded() {
+        guard viewingArtifact != nil else { return }
+        withAnimation(.easeInOut(duration: 0.22)) {
+            viewingArtifact = nil
+        }
+    }
+
+    private func reportReviewState() {
+        let isReviewing = viewingArtifact != nil
+        onReviewStateChange(isReviewing)
+        onPreferredHeightChange(isReviewing ? Layout.reviewHeight : Layout.listHeight)
     }
 }
 
@@ -321,7 +349,6 @@ private struct DeskCardView: View {
 
 private struct ArtifactView: View {
     let item: DeskItem
-    let onClose: () -> Void
     let onApprove: () -> Void
 
     @State private var hasEdited = false
@@ -336,8 +363,6 @@ private struct ArtifactView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                artifactHeader
-                Divider().opacity(0.10)
                 artifactContent
             }
 
@@ -352,50 +377,40 @@ private struct ArtifactView: View {
         .onAppear { loadContent() }
     }
 
-    private var artifactHeader: some View {
-        HStack(spacing: 0) {
-            Button(action: onClose) {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Desk")
-                        .font(.system(size: 13))
-                }
-                .foregroundColor(.white.opacity(0.45))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            Spacer()
-        }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 11)
-    }
-
     @ViewBuilder
     private var artifactContent: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(item.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.90))
+        if case .email = item.artifact {
+            emailLayoutExpanded
+        } else {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(item.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.90))
 
-                switch item.artifact {
-                case .email:           emailFields
-                case .meetingNote:     meetingNoteFields
-                case .actionItems:     actionItemsFields
-                case .linkedInBatch:   linkedInBatchFields
+                    switch item.artifact {
+                    case .meetingNote:   meetingNoteFields
+                    case .actionItems:   actionItemsFields
+                    case .linkedInBatch: linkedInBatchFields
+                    default:             EmptyView()
+                    }
                 }
+                .padding(.horizontal, 32)
+                .padding(.top, 12)
+                .padding(.bottom, 80)
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 12)
-            .padding(.bottom, 80)
         }
     }
 
-    // MARK: Email
+    // MARK: Email — expands to fill available height
 
-    private var emailFields: some View {
+    private var emailLayoutExpanded: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(item.title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.90))
+                .padding(.bottom, 4)
+
             fieldLabel("Subject")
             TextField("Subject", text: $emailSubject)
                 .textFieldStyle(.plain)
@@ -411,12 +426,16 @@ private struct ArtifactView: View {
                 .font(.system(size: 13))
                 .foregroundColor(.white.opacity(0.82))
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 150)
                 .padding(8)
                 .background(fieldBackground)
                 .overlay(fieldBorder)
+                .frame(maxHeight: .infinity)
                 .onChange(of: emailBody) { _, _ in hasEdited = true }
         }
+        .padding(.horizontal, 32)
+        .padding(.top, 12)
+        .padding(.bottom, 68) // clear the approve bar
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: Meeting note

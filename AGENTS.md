@@ -8,8 +8,8 @@
 Yaven is a macOS menu-bar app. It has no Dock icon. Returning users land in the Claude computer-operator shell; first-run users may see the centered onboarding window until onboarding is complete:
 
 - a single expanding notch window anchored top-centre of the primary screen (in the menu bar area)
-- collapsed: a 220 × 36 black pill showing the cloud mascot
-- expanded: the pill becomes a full-width header and the chat panel drops below it (460 × 456 total)
+- collapsed: a 220 × 36 camera-width pill using the selected Black or Glass shell surface
+- expanded: the pill becomes a full-width header and the widget panel drops below it (600 × variable height)
 - open via hover (300 ms delay), pill click, menu-bar click, or `Space+Y`
 - close via pill click, Escape, click outside, or hotkey
 - on-submit screen context capture via ScreenCaptureKit
@@ -26,17 +26,17 @@ Yaven captures screen context only when the user submits a request. It does not 
 ## Architecture
 
 - **App Type**: Menu bar-only (`LSUIElement=true`)
-- **Framework**: SwiftUI with AppKit bridging for `NSStatusItem`, `NSPanel`, and `NSVisualEffectView`
+- **Framework**: SwiftUI with AppKit bridging for `NSStatusItem`, `NSPanel`, `NSVisualEffectView`, and SwiftUI Liquid Glass APIs when available
 - **Shell Controller**: `YavenShellController` owns the orb window, fixed-height panel window, global hotkey, screen-change repositioning, dismissal monitors, and notification deep-link routing into task threads
 - **Gateway**: `YavenGateway` is the in-app routing and policy kernel. It classifies commands into direct open, Mail cleanup, HubSpot CRM update, operator plan, or chat; it also owns sensitive-action blocks and operator-plan validation.
 - **Agent Controller**: `YavenAgentController` owns Claude requests, screen context capture, durable thread state, approval plans, Activity Inbox state, and foreground selection. It should ask `YavenGateway` for routing and policy decisions instead of duplicating intent checks inline.
 - **Task Runner**: `YavenTaskRunner` keeps task threads running after the panel closes, allows multiple non-UI tasks, and serializes desktop-control work through a single UI-action queue
 - **Thread Store**: `YavenThreadStore` persists threads, messages, checkpoints, approvals, skill execution records, and activity events in SQLite at `~/Library/Application Support/Yaven/yaven.sqlite`
 - **Activity Awareness**: `YavenActivityObserver` logs app switches and optional focused window titles only after explicit opt-in. It never captures screenshots, OCR, or AX trees continuously.
-- **Onboarding**: `OnboardingManager` gates first-run setup and migrates the legacy Clicky completion flag so renamed installs do not re-run onboarding unnecessarily. Onboarding titles use bundled editorial serif fonts registered at launch. Phase 3 ends onboarding with a timed arrival transition, orb bloom, ceremonial first panel, and optional inbox cleanup.
+- **Onboarding**: `OnboardingManager` gates first-run setup and migrates the legacy Clicky completion flag so renamed installs do not re-run onboarding unnecessarily. Onboarding titles use bundled editorial serif fonts registered at launch. Phase 3 lets the user choose Black or Glass shell mode, then ends onboarding with a timed arrival transition, orb bloom, ceremonial first panel, and optional inbox cleanup.
 - **First-value inbox cleanup**: `YavenCleanupController` lists recent Mail messages via AppleScript skills, asks Claude for a fixed five-category plan, executes archive/move actions after explicit approval, then surfaces needs-reply cards with draft handoff to the existing agent loop.
 - **Skills**: `YavenSkillRegistry`, `MailSkills`, and `HubSpotSkills` provide Mail cleanup skills and approval-first HubSpot CRM read/write skills.
-- **Windows**: one `YavenNotchWindow` (`.mainMenu+3` level) that resizes between pill (220×36) and expanded (460×456) states. `YavenPanelWindow` is kept compileable but not instantiated. `YavenNotchExpansion` (ObservableObject owned by the shell controller) is the shared open/close state — the view writes to it and the shell controller animates the window frame in response.
+- **Windows**: one `YavenNotchWindow` (`.mainMenu+3` level) that resizes between a 220×36 camera-width pill and expanded panel states. `YavenPanelWindow` is kept compileable but not instantiated. `YavenNotchExpansion` (ObservableObject owned by the shell controller) is the shared open/close state — the view writes to it and the shell controller animates the window frame in response. The notch reads the persisted appearance and renders either the current solid black shell or a smoked native glass shell using SwiftUI `glassEffect` on macOS 26+ with material fallbacks.
 - **Hotkey**: AppKit local/global `NSEvent` monitors for `Space+Y`; key monitoring depends on Accessibility access
 - **Claude**: `ClaudeAPI.swift` streams screenshot-aware chat and decodes strict JSON operator plans through the Worker proxy
 - **Automation**: `YavenAutomationExecutor` executes validated plans; simple open/send plans may run directly, while riskier plans pause for approval. It must never enter passwords, payment details, or system security prompts
@@ -54,7 +54,7 @@ The Worker still contains legacy `/tts` and `/transcribe-token` routes from the 
 | File | Lines | Purpose |
 |------|-------|---------|
 | `leanring_buddyApp.swift` | ~100 | Menu-bar app entry point. Creates `YavenShellController`, `MenuBarPanelManager`, activity observer, and first-run onboarding, then starts the shell for completed users. |
-| `YavenShellController.swift` | ~350 | Shell coordinator. Owns the single notch window and `YavenNotchExpansion`. Wires expansion changes to `NSAnimationContext` window resizing. Manages hotkey, screen-change repositioning, click-outside monitors, and first-run flow. |
+| `YavenShellController.swift` | ~431 | Shell coordinator. Owns the single notch window and `YavenNotchExpansion`. Wires expansion and drag-progress changes to window resizing. Manages collapsed positioning, hotkey, screen-change repositioning, click-outside monitors, and first-run flow. |
 | `YavenAgentController.swift` | ~1196 | Agent state controller. Captures context, calls Claude, persists/migrates durable threads, manages Activity Inbox selection, approvals, direct commands, CRM plans, and execution handoff. Routing decisions come from `YavenGateway`. |
 | `YavenGateway.swift` | ~240 | In-app gateway/policy kernel for intent routing, sensitive-action blocks, approval command parsing, auto-execution rules, and operator-plan validation. |
 | `YavenTaskRunner.swift` | ~159 | Background task owner. Keeps threads alive after panel close, tracks active threads, and serializes desktop-control actions. |
@@ -69,11 +69,12 @@ The Worker still contains legacy `/tts` and `/transcribe-token` routes from the 
 | `YavenNotificationManager.swift` | ~73 | Local notification authorization, delivery, and thread deep-link wrapper. |
 | `SpaceYHotkeyMonitor.swift` | ~109 | AppKit key monitors that toggle the shell when Space is held and Y is pressed. |
 | `YavenNotchWindow.swift` | ~50 | `NSPanel` at `.mainMenu+3` level. `canBecomeKey = true` for text input. Handles Escape via `onEscapePressed` callback. |
-| `YavenNotchView.swift` | ~220 | Unified expanding notch view. Defines `YavenNotchExpansion` (ObservableObject). Pill strip at top animates corner radii on expand; panel content fades in below. Hover (300 ms) or tap opens. |
+| `YavenNotchView.swift` | ~638 | Unified expanding notch view. Defines `YavenNotchExpansion` (ObservableObject). Pill strip at top animates corner radii on expand; panel content fades in below. Hover (300 ms), tap, or drag-down opens. Renders the selected Black or smoked Glass shell surface with shine and approval cues. |
 | `YavenOrbWindow.swift` | ~34 | Legacy orb panel — kept compileable but no longer instantiated. |
-| `YavenOrbView.swift` | ~142 | Legacy orb view — kept compileable but no longer instantiated. |
+| `YavenOrbView.swift` | ~301 | Legacy orb view — kept compileable but no longer instantiated. Renders compatible Black and Glass orb bodies. |
 | `YavenPanelWindow.swift` | ~44 | Non-activating key-capable `NSPanel` subclass for the command panel and Escape handling. |
-| `YavenPanelView.swift` | ~733 | SwiftUI Activity Inbox and thread-detail panel with approval/running/recent sections, bottom-pinned prompt input, persisted transcript bubbles, approval cards, result/error states, and permission shortcuts. |
+| `YavenPanelView.swift` | ~840 | SwiftUI Activity Inbox and thread-detail panel with approval/running/recent sections, bottom-pinned prompt input, persisted transcript bubbles, approval cards, result/error states, permission shortcuts, and shared panel/widget focus requests. |
+| `YavenWidgetBar.swift` | ~1371 | Dynamic widget panel inside the expanded notch. Handles compact dashboard, chat, agents, automations, approvals, and focus requests from shell cues. |
 | `VisualEffectBackground.swift` | ~25 | `NSVisualEffectView` wrapper for native macOS glass material. |
 | `MenuBarPanelManager.swift` | ~68 | `NSStatusItem` fallback summon and right-click quit menu. |
 | `CompanionManager.swift` | ~206 | Preserved Phase 0 typed-chat state manager. Not instantiated by the Phase 2 runtime. |
@@ -90,7 +91,7 @@ The Worker still contains legacy `/tts` and `/transcribe-token` routes from the 
 | `OnboardingRootView.swift` | ~56 | Top-level SwiftUI container. Switches stage views with cross-fade over the animated gradient. |
 | `OnboardingSignInView.swift` | ~86 | Stage 1 — display-serif wordmark, Google sign-in button, spinner, error message, privacy notice. |
 | `OnboardingConversationView.swift` | ~267 | Stage 2 — pastel display-serif masthead over a live streaming chat list, message-level thinking bubble, floating glass input dock, send button. |
-| `OnboardingConnectorsView.swift` | ~141 | Stage 3 — choose Yaven's appearance: Water, Pixel, or Cloud. Filename remains connector-era for project stability. |
+| `OnboardingConnectorsView.swift` | ~146 | Stage 3 — choose Yaven's shell appearance with cardless Dark/Light orb selectors. Filename remains connector-era for project stability. |
 | `OnboardingLaunchAnimationView.swift` | ~79 | Legacy launch beat (superseded for new users by arrival transition). |
 | `OnboardingArrivalCoordinator.swift` | ~95 | Timed arrival state machine: onboarding fade, dark wash, orb bloom, ceremonial panel summon. |
 | `OnboardingArrivalTransitionView.swift` | ~25 | Onboarding-window fade + wash during `.arrivalTransition`. |
@@ -106,9 +107,9 @@ The Worker still contains legacy `/tts` and `/transcribe-token` routes from the 
 | `HubSpotCRMPlan.swift` | ~25 | Codable approval-plan models for HubSpot CRM update proposals. |
 | `YavenSkillRegistry.swift` | ~59 | Skill lookup, metadata, and execution dispatch across Mail and HubSpot skills. |
 | `YavenFirstValueViews.swift` | ~280 | First message, scanning progress, categories card, execution, and done views. |
-| `YavenOnboardingMascotView.swift` | ~136 | SwiftUI-only Water, Pixel, and Cloud mascot renderer used by onboarding and the orb. |
-| `OnboardingManager.swift` | ~298 | Central ObservableObject for onboarding stages, appearance persistence, launch animation transition, and legacy completion-state migration. |
-| `UserProfile.swift` | ~164 | Shared data models: GoogleProfile, ConversationMessage, UserProfile, connector state, and onboarding appearance options. |
+| `YavenOnboardingMascotView.swift` | ~172 | SwiftUI-only Black and Glass surface preview renderer used by onboarding and the arrival animation. |
+| `OnboardingManager.swift` | ~380 | Central ObservableObject for onboarding stages, appearance persistence, launch animation transition, and legacy completion-state migration. |
+| `UserProfile.swift` | ~159 | Shared data models: GoogleProfile, ConversationMessage, UserProfile, connector state, and onboarding appearance options. |
 | `GoogleAuthClient.swift` | ~310 | Google OAuth via ASWebAuthenticationSession + PKCE, with guarded callback continuation handling. |
 | `docs/onboarding-backend-notes.md` | ~111 | Nick's onboarding backend notes — API reference, what's done, what's next. |
 | `docs/phase-0-audit.md` | ~212 | Phase 0 audit and removal plan. |
@@ -145,7 +146,7 @@ Do **not** run `xcodebuild` from the terminal. It can invalidate TCC permissions
 - Use SwiftUI for UI unless AppKit is required.
 - Keep UI state updates on `@MainActor`.
 - Bridge AppKit `NSPanel`/`NSWindow` into SwiftUI with `NSHostingView`.
-- Use `NSVisualEffectView` via `VisualEffectBackground` for Yaven glass surfaces.
+- Use SwiftUI `glassEffect(_:in:)`, `Glass.interactive(_:)`, and `.buttonStyle(.glass(...))` for Yaven glass surfaces on macOS 26+; keep availability guards and fall back to `VisualEffectBackground`/materials for older deployment targets.
 - For non-activating panels that need input, override `canBecomeKey` in the `NSPanel` subclass.
 - Keep shell windows `.nonactivatingPanel`; the app must not become frontmost.
 - Keep all agent UI state on `@MainActor`.
@@ -156,6 +157,22 @@ Do **not** run `xcodebuild` from the terminal. It can invalidate TCC permissions
 - Panel close hides the UI but must not cancel durable background threads. Use explicit cancel actions to stop a thread.
 - Multiple non-UI/background tasks may run concurrently. Desktop-control actions that click, type, switch apps, or use the pasteboard must go through the single UI-action queue.
 - All buttons must show a pointer cursor on hover when applicable.
+
+### Liquid Glass
+
+- Treat Apple's Liquid Glass documentation as the source of truth:
+  `https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views` and
+  `https://developer.apple.com/documentation/swiftui/landmarks-building-an-app-with-liquid-glass`.
+- Prefer system-provided Liquid Glass from standard SwiftUI controls, toolbars, sheets, and popovers before building custom glass.
+- Apply custom glass with `glassEffect(_:in:)`; choose a shape that matches the component instead of accepting the default capsule when it would look wrong.
+- Apply appearance-affecting modifiers before `glassEffect(_:in:)`, because the effect captures the view content for rendering.
+- Use `Glass.interactive(_:)` or `.buttonStyle(.glass(...))` for controls that should respond to touch or pointer interaction.
+- Use tint sparingly to communicate prominence, not as a general color wash.
+- Wrap groups of nearby custom glass elements in `GlassEffectContainer` so SwiftUI can render them efficiently and blend or morph their shapes correctly.
+- Tune `GlassEffectContainer` spacing intentionally: overly large spacing can merge nearby glass at rest; aligned spacing supports deliberate morphing during movement.
+- For glass elements that appear, disappear, or morph, assign stable `glassEffectID(_:in:)` values inside a namespace and use system `GlassEffectTransition` styles such as matched geometry or materialize.
+- Limit the number of simultaneous custom glass effects and containers. Too many glass effects degrade rendering performance.
+- When content should visually continue behind translucent sidebars or inspectors, prefer Apple's background extension and scroll-extension patterns over hand-built blur layers.
 
 ### Do Not
 

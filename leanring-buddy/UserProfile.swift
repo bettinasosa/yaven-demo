@@ -117,23 +117,43 @@ struct OnboardingConnectorState: Identifiable {
 // MARK: - Stage 3: Appearance Choice
 
 enum OnboardingAppearance: String, CaseIterable, Identifiable {
-    case water
-    case cloud
+    case black
+    case glass
 
     var id: String { rawValue }
     static let defaultsKey = "selectedYavenAppearance"
+    static let defaultAppearance: OnboardingAppearance = .black
+
+    static func fromStoredRawValue(_ rawValue: String?) -> OnboardingAppearance {
+        switch rawValue {
+        case black.rawValue:
+            return .black
+        case glass.rawValue:
+            return .glass
+        case "water":
+            return .glass
+        case "cloud":
+            return .black
+        default:
+            return defaultAppearance
+        }
+    }
+
+    var isGlassMode: Bool {
+        self == .glass
+    }
 
     var displayName: String {
         switch self {
-        case .water: return "Orb"
-        case .cloud: return "Cloud"
+        case .black: return "Black"
+        case .glass: return "Glass"
         }
     }
 
     var tagline: String {
         switch self {
-        case .water: return "Glassy, calm, minimal."
-        case .cloud: return "Cute, light, floaty."
+        case .black: return "The current dark notch."
+        case .glass: return "Liquid, clear, refractive."
         }
     }
 }

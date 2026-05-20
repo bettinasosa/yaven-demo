@@ -6,8 +6,8 @@
 //
 //  Architecture:
 //  - One YavenNotchWindow lives at the top-centre of the screen.
-//  - Collapsed: 250 × 36 pill in the menu bar area.
-//  - Expanded: 640 × (36+content) — pill header + full chat panel, growing downward.
+//  - Collapsed: 220 × 36 pill in the menu bar area.
+//  - Expanded: 600 × (36+content) — pill header + full chat panel, growing downward.
 //  - YavenNotchExpansion is the shared state; the view and the shell controller
 //    both read/write it, while the shell controller resizes the window on changes.
 //
@@ -50,6 +50,7 @@ final class YavenShellController: NSObject {
     private(set) var firstRunPanelMode: YavenFirstRunPanelMode = .hidden
 
     private var isStarted = false
+    private var preferredPanelContentHeight = Layout.panelContentHeight
 
     private var screenParametersObserver: NSObjectProtocol?
     private var globalClickOutsideMonitor: Any?
@@ -79,6 +80,10 @@ final class YavenShellController: NSObject {
                     agentController.cancelAndReset()
                 }
             }
+        }
+        expansion.onDragProgressChanged = { [weak self] progress in
+            guard let self, !self.expansion.isExpanded else { return }
+            self.positionInteractiveExpansion(progress: progress)
         }
 
         notchWindow.onEscapePressed = { [weak self] in
@@ -118,7 +123,7 @@ final class YavenShellController: NSObject {
 
     func startFirstRunExperienceIfNeeded(
         clickOrigin: CGPoint = .zero,
-        appearance: OnboardingAppearance = .cloud
+        appearance: OnboardingAppearance = .defaultAppearance
     ) {
         positionNotchWindow()
         notchWindow.orderFrontRegardless()
@@ -285,8 +290,22 @@ final class YavenShellController: NSObject {
         )
     }
 
+    private func interactiveExpansionFrame(progress: CGFloat) -> NSRect {
+        let boundedProgress = min(max(progress, 0), 1)
+        let totalHeight = Layout.pillHeight + Layout.panelContentHeight * boundedProgress
+        let screen = NSScreen.screens.first?.frame ?? NSScreen.main?.frame ?? .zero
+        return NSRect(
+            x: screen.midX - Layout.panelWidth / 2,
+            y: screen.maxY - totalHeight,
+            width: Layout.panelWidth,
+            height: totalHeight
+        )
+    }
+
     private func positionNotchWindow() {
-        let frame = expansion.isExpanded ? expandedFrame() : collapsedFrame()
+        let frame = expansion.isExpanded
+            ? expandedFrame(panelContentHeight: preferredPanelContentHeight)
+            : collapsedFrame()
         notchWindow.setFrame(frame, display: true)
     }
 
@@ -295,7 +314,7 @@ final class YavenShellController: NSObject {
     private func expandNotchWindow() {
         // Set frame instantly — SwiftUI spring drives all visible animation, exactly like boring.notch.
         // Animating the NSWindow frame concurrently with SwiftUI causes the jump/gap artefact.
-        notchWindow.setFrame(expandedFrame(), display: true)
+        notchWindow.setFrame(expandedFrame(panelContentHeight: preferredPanelContentHeight), display: true)
         notchWindow.makeKeyAndOrderFront(nil)
         notchWindow.makeKey()
         installClickOutsideMonitors()
@@ -310,12 +329,35 @@ final class YavenShellController: NSObject {
         removeClickOutsideMonitors()
     }
 
+    private func positionInteractiveExpansion(progress: CGFloat) {
+        let targetFrame = interactiveExpansionFrame(progress: progress)
+        guard abs(targetFrame.height - notchWindow.frame.height) > 1 else { return }
+        notchWindow.setFrame(targetFrame, display: true)
+    }
+
     private func handlePreferredHeightChange(_ preferredHeight: CGFloat) {
+        preferredPanelContentHeight = preferredHeight
         guard expansion.isExpanded else { return }
         let targetFrame = expandedFrame(panelContentHeight: preferredHeight)
         guard abs(targetFrame.height - notchWindow.frame.height) > 2
            || abs(targetFrame.width  - notchWindow.frame.width)  > 2 else { return }
-        notchWindow.setFrame(targetFrame, display: true)
+
+        if targetFrame.height >= notchWindow.frame.height {
+            // Growing: resize immediately so expanding content has room.
+            notchWindow.setFrame(targetFrame, display: true)
+        } else {
+            // Shrinking: defer until after the SwiftUI transition animation
+            // has played out, so the bottom rounded corners don't clip mid-flight
+            // and the bar stays flush against the top of the screen.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(160))
+                guard let self, self.expansion.isExpanded else { return }
+                let latestFrame = self.expandedFrame(panelContentHeight: self.preferredPanelContentHeight)
+                guard abs(latestFrame.height - self.notchWindow.frame.height) > 2
+                   || abs(latestFrame.width  - self.notchWindow.frame.width)  > 2 else { return }
+                self.notchWindow.setFrame(latestFrame, display: true)
+            }
+        }
     }
 
     // MARK: - Private open helpers

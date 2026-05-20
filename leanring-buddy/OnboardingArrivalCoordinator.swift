@@ -28,7 +28,7 @@ final class OnboardingArrivalCoordinator: ObservableObject {
     /// Screen-coordinate origin of the tap that triggered the arrival sequence.
     var clickOrigin: CGPoint = .zero
     /// Appearance selected by the user; used to render the correct mascot.
-    var selectedAppearance: OnboardingAppearance = .cloud
+    var selectedAppearance: OnboardingAppearance = .defaultAppearance
 
     var onPanelSummon: (() -> Void)?
     var onSequenceFinished: (() -> Void)?

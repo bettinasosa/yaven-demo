@@ -65,7 +65,7 @@ final class OnboardingManager: ObservableObject {
 
     // Stage 3
     @Published private(set) var connectors: [OnboardingConnectorState] = []
-    @Published private(set) var selectedAppearance: OnboardingAppearance = .cloud
+    @Published private(set) var selectedAppearance: OnboardingAppearance = .defaultAppearance
 
     /// Screen-coordinate position of the tap that kicked off the arrival sequence.
     private(set) var arrivalClickOrigin: CGPoint = .zero
@@ -109,10 +109,8 @@ final class OnboardingManager: ObservableObject {
 
     init(profileMemoryManager: ProfileMemoryManager? = nil) {
         self.profileMemoryManager = profileMemoryManager
-        if let savedAppearanceRaw = UserDefaults.standard.string(forKey: OnboardingAppearance.defaultsKey),
-           let savedAppearance = OnboardingAppearance(rawValue: savedAppearanceRaw) {
-            self.selectedAppearance = savedAppearance
-        }
+        let savedAppearanceRaw = UserDefaults.standard.string(forKey: OnboardingAppearance.defaultsKey)
+        self.selectedAppearance = OnboardingAppearance.fromStoredRawValue(savedAppearanceRaw)
         if Self.hasCompletedOnboarding {
             self.stage = .complete
         } else {
@@ -228,7 +226,6 @@ final class OnboardingManager: ObservableObject {
         UserDefaults.standard.set(appearance.rawValue, forKey: OnboardingAppearance.defaultsKey)
     }
 
-
     func skipConnectors() {
         for index in connectors.indices
             where connectors[index].status == .notConnected || connectors[index].status == .unsupported {
@@ -238,6 +235,7 @@ final class OnboardingManager: ObservableObject {
     }
 
     func proceedFromConnectors(clickOrigin: CGPoint = .zero) {
+        arrivalClickOrigin = clickOrigin
         UserDefaults.standard.set(selectedAppearance.rawValue, forKey: OnboardingAppearance.defaultsKey)
         stage = .welcome
     }
@@ -368,7 +366,7 @@ final class OnboardingManager: ObservableObject {
         googleProfile = nil
         userProfile = nil
         connectors = []
-        selectedAppearance = .cloud
+        selectedAppearance = .defaultAppearance
         isSigningInWithGoogle = false
         googleSignInErrorMessage = nil
         userName = ""

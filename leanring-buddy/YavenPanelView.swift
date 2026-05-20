@@ -9,9 +9,16 @@ import SwiftUI
 @MainActor
 final class YavenPanelFocusCoordinator: ObservableObject {
     @Published var focusRequestID = UUID()
+    @Published private(set) var widgetFocusRequestID = UUID()
+    @Published private(set) var requestedWidgetFocus: WidgetFocus?
 
     func requestInputFocus() {
         focusRequestID = UUID()
+    }
+
+    func requestWidgetFocus(_ focus: WidgetFocus) {
+        requestedWidgetFocus = focus
+        widgetFocusRequestID = UUID()
     }
 }
 

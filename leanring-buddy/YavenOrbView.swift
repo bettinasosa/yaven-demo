@@ -23,7 +23,7 @@ struct YavenOrbView: View {
     /// "Help me reply to this"
     let onHelpReply: () -> Void
 
-    @AppStorage(OnboardingAppearance.defaultsKey) private var selectedAppearanceRaw = OnboardingAppearance.water.rawValue
+    @AppStorage(OnboardingAppearance.defaultsKey) private var selectedAppearanceRaw = OnboardingAppearance.defaultAppearance.rawValue
     @State private var isPulseExpanded = false
     @State private var isHovering = false
 
@@ -142,7 +142,7 @@ struct YavenOrbView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 32, height: 32)
-                .background(.ultraThinMaterial, in: Circle())
+                .background { fanButtonBackground(tint: tint) }
                 .overlay(Circle().stroke(tint.opacity(0.32), lineWidth: 0.8))
         }
         .buttonStyle(.plain)
@@ -150,36 +150,89 @@ struct YavenOrbView: View {
         .shadow(color: tint.opacity(0.30), radius: 6, y: 2)
     }
 
+    @ViewBuilder
+    private func fanButtonBackground(tint: Color) -> some View {
+        if selectedAppearance.isGlassMode, #available(macOS 26.0, *) {
+            Color.white.opacity(0.001)
+                .glassEffect(
+                    .clear
+                        .interactive(true)
+                        .tint(tint.opacity(0.08)),
+                    in: Circle()
+                )
+        } else {
+            Circle()
+                .fill(.ultraThinMaterial)
+        }
+    }
+
     // MARK: - Orb body
 
     @ViewBuilder
     private var orbBody: some View {
         switch selectedAppearance {
-        case .water:
-            waterOrbBody.clipShape(Circle())
-        case .cloud:
-            YavenOnboardingMascotView(appearance: .cloud, size: size)
+        case .black:
+            blackOrbBody.clipShape(Circle())
+        case .glass:
+            glassOrbBody.clipShape(Circle())
         }
     }
 
     private var selectedAppearance: OnboardingAppearance {
-        OnboardingAppearance(rawValue: selectedAppearanceRaw) ?? .water
+        OnboardingAppearance.fromStoredRawValue(selectedAppearanceRaw)
     }
 
-    // MARK: - Water orb body
+    // MARK: - Orb bodies
 
-    private var waterOrbBody: some View {
+    private var blackOrbBody: some View {
         ZStack {
-            VisualEffectBackground(material: .hudWindow, blendingMode: .behindWindow)
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(white: 0.18),
+                            Color(white: 0.03),
+                            Color.black
+                        ],
+                        center: UnitPoint(x: 0.30, y: 0.18),
+                        startRadius: 1,
+                        endRadius: size * 0.76
+                    )
+                )
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.24),
+                            Color.white.opacity(0.06),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Ellipse()
+                .fill(Color.white.opacity(0.28))
+                .frame(width: size * 0.40, height: size * 0.14)
+                .blur(radius: 3)
+                .offset(x: -size * 0.16, y: -size * 0.22)
+        }
+    }
+
+    private var glassOrbBody: some View {
+        ZStack {
+            glassOrbBase
 
             Circle()
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color.white.opacity(0.82),
-                            Color(red: 1.00, green: 0.92, blue: 0.72).opacity(0.28),
-                            Color(red: 0.96, green: 0.80, blue: 0.54).opacity(0.32),
-                            Color(red: 0.72, green: 0.58, blue: 0.40).opacity(0.22)
+                            Color.white.opacity(0.46),
+                            Color(red: 0.74, green: 0.64, blue: 0.50).opacity(0.34),
+                            Color(red: 0.50, green: 0.46, blue: 0.38).opacity(0.18),
+                            Color(red: 0.18, green: 0.18, blue: 0.17).opacity(0.08)
                         ],
                         center: UnitPoint(x: 0.28, y: 0.18),
                         startRadius: 1,
@@ -192,8 +245,8 @@ struct YavenOrbView: View {
                     RadialGradient(
                         colors: [
                             Color.clear,
-                            Color(red: 0.50, green: 0.35, blue: 0.18).opacity(0.16),
-                            Color(red: 0.28, green: 0.18, blue: 0.08).opacity(0.16)
+                            Color(red: 0.88, green: 0.78, blue: 0.62).opacity(0.08),
+                            Color(red: 0.18, green: 0.18, blue: 0.17).opacity(0.06)
                         ],
                         center: UnitPoint(x: 0.72, y: 0.76),
                         startRadius: size * 0.14,
@@ -205,10 +258,10 @@ struct YavenOrbView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.52),
-                            Color(red: 1.00, green: 0.90, blue: 0.62).opacity(0.22),
-                            Color(red: 0.98, green: 0.76, blue: 0.48).opacity(0.12),
-                            Color(red: 0.30, green: 0.20, blue: 0.10).opacity(0.12)
+                            Color.white.opacity(0.22),
+                            Color.white.opacity(0.08),
+                            Color(red: 0.88, green: 0.78, blue: 0.62).opacity(0.08),
+                            Color.clear
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -216,7 +269,7 @@ struct YavenOrbView: View {
                 )
 
             Ellipse()
-                .fill(Color(red: 1.00, green: 0.88, blue: 0.52).opacity(0.60))
+                .fill(Color.white.opacity(0.60))
                 .frame(width: size * 0.46, height: size * 0.18)
                 .blur(radius: 5)
                 .offset(x: -size * 0.15, y: -size * 0.21)
@@ -226,6 +279,23 @@ struct YavenOrbView: View {
                 .frame(width: size * 0.20, height: size * 0.08)
                 .blur(radius: 1.5)
                 .offset(x: -size * 0.22, y: -size * 0.25)
+        }
+    }
+
+    @ViewBuilder
+    private var glassOrbBase: some View {
+        if #available(macOS 26.0, *) {
+            Color.white.opacity(0.001)
+                .glassEffect(
+                    .regular
+                        .interactive(true)
+                        .tint(Color(red: 0.66, green: 0.56, blue: 0.42).opacity(0.18)),
+                    in: Circle()
+                )
+        } else {
+            VisualEffectBackground(material: .underWindowBackground, blendingMode: .behindWindow)
+                .clipShape(Circle())
+                .overlay(Circle().fill(Color.white.opacity(0.08)))
         }
     }
 }
