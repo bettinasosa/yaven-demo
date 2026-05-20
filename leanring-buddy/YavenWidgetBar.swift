@@ -90,7 +90,7 @@ struct YavenWidgetBar: View {
                 onPreferredHeightChange(height(for: focus))
             }
             if focus != .chat { showingChatHistory = false }
-            if focus != .logCall { automationDrillIn = nil }
+            if focus != .logCall && focus != .agents { automationDrillIn = nil }
         }
         // When the shell requests focus (hotkey / notification tap), focus input without switching views.
         .onChange(of: focusCoordinator.focusRequestID) { _, _ in
@@ -198,10 +198,20 @@ struct YavenWidgetBar: View {
         let low    = agentController.proactiveSuggestions.filter { $0.confidence == .low }
 
         if high.isEmpty && review.isEmpty && low.isEmpty {
-            Text("Ready when you are.")
-                .font(.system(size: 13))
-                .foregroundColor(.white.opacity(0.22))
+            if agentController.isScanningSuggestions {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini).tint(.white.opacity(0.40))
+                    Text("Scanning your emails and calendar…")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.35))
+                }
                 .padding(.top, 10)
+            } else {
+                Text("Ready when you are.")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.22))
+                    .padding(.top, 10)
+            }
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 if !high.isEmpty {
@@ -308,9 +318,9 @@ struct YavenWidgetBar: View {
     private var expandedHeader: some View {
         HStack(spacing: 0) {
             Button {
-                if widgetFocus == .logCall, automationDrillIn != nil {
+                if (widgetFocus == .logCall || widgetFocus == .agents), automationDrillIn != nil {
                     withAnimation(Motion.focus) { automationDrillIn = nil }
-                    onPreferredHeightChange(Self.logCallHeight)
+                    onPreferredHeightChange(Self.automationsHeight)
                 } else {
                     setWidgetFocus(.none)
                 }
@@ -369,7 +379,7 @@ struct YavenWidgetBar: View {
         case .notifications: return "Notifications"
         case .logCall:       return automationDrillIn?.displayName ?? "Automations"
         case .meeting:       return "Process Meeting"
-        case .agents:        return "Agents"
+        case .agents:        return automationDrillIn?.displayName ?? "Agents"
         case .approvals:     return "Approvals"
         case .none:          return ""
         }
@@ -746,26 +756,17 @@ struct YavenWidgetBar: View {
         }
     }
 
-    // MARK: - Agents expanded
+    // MARK: - Agents expanded (file drawer)
 
     private var agentsExpandedView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                activitySection(
-                    title: "Running",
-                    threads: agentController.runningThreads,
-                    emptyText: "No agents running."
-                )
-                activitySection(
-                    title: "Recent",
-                    threads: Array(agentController.recentThreads.prefix(8)),
-                    emptyText: "No recent agent activity."
-                )
+        Group {
+            if let drill = automationDrillIn {
+                automationDetailContent(drill)
+            } else {
+                automationListContent
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Approvals expanded
@@ -902,51 +903,70 @@ struct YavenWidgetBar: View {
 
     private var automationListContent: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(drawerCategories) { category in
-                    drawerCategoryBlock(category)
+                    drawerCategorySection(category)
                 }
+                Spacer().frame(height: 20)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 24)
         }
     }
 
-    private func drawerCategoryBlock(_ category: AgentCategory) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Drawer divider tab
-            HStack(spacing: 7) {
-                Capsule()
-                    .fill(category.color)
-                    .frame(width: 20, height: 3)
-                Text(category.name.uppercased())
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(category.color)
-                    .tracking(1.4)
-                Spacer()
+    private func drawerCategorySection(_ category: AgentCategory) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Hanging folder divider — colored tab label + full-width rule
+            HStack(alignment: .center, spacing: 0) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(category.color)
+                        .frame(width: 6, height: 6)
+                    Text(category.name.uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(category.color)
+                        .tracking(1.2)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(category.color.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(category.color.opacity(0.22), lineWidth: 0.5)
+                )
+
+                Rectangle()
+                    .fill(category.color.opacity(0.18))
+                    .frame(maxWidth: .infinity, maxHeight: 0.5)
+                    .padding(.leading, 10)
+
                 Text("\(category.agents.count)")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.2))
+                    .foregroundColor(.white.opacity(0.18))
+                    .padding(.leading, 8)
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 6)
 
-            // Two-column staggered grid — odd column offset creates the drawer fan effect.
-            let left  = category.agents.enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
-            let right = category.agents.enumerated().filter { $0.offset % 2 != 0 }.map(\.element)
-
-            HStack(alignment: .top, spacing: 8) {
-                VStack(spacing: 8) {
-                    ForEach(left)  { agentFileCard($0, color: category.color) }
-                }
-                VStack(spacing: 8) {
-                    Color.clear.frame(height: 22) // stagger offset
-                    ForEach(right) { agentFileCard($0, color: category.color) }
+            // File rows
+            VStack(spacing: 0) {
+                ForEach(Array(category.agents.enumerated()), id: \.element.id) { index, file in
+                    fileRow(file, color: category.color)
+                    if index < category.agents.count - 1 {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.04))
+                            .frame(height: 0.5)
+                            .padding(.leading, 68)
+                            .padding(.trailing, 24)
+                    }
                 }
             }
         }
     }
 
-    private func agentFileCard(_ file: AgentFile, color: Color) -> some View {
+    private func fileRow(_ file: AgentFile, color: Color) -> some View {
         Button {
             guard let item = file.automationItem else { return }
             withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
@@ -954,70 +974,53 @@ struct YavenWidgetBar: View {
                 if item != .processMeeting { onPreferredHeightChange(Self.logCallHeight) }
             }
         } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                // Folder tab notch
-                HStack(alignment: .bottom, spacing: 0) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(file.isAvailable ? color.opacity(0.20) : Color.white.opacity(0.05))
-                        .frame(width: 38, height: 14)
-                        .overlay(
-                            Circle()
-                                .fill(file.isAvailable ? color.opacity(0.85) : Color.white.opacity(0.18))
-                                .frame(width: 5, height: 5)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 9)
-                        )
-                    Spacer()
-                    if !file.isAvailable {
-                        Text("SOON")
-                            .font(.system(size: 7, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.18))
-                            .tracking(0.5)
-                            .padding(.trailing, 8)
-                            .padding(.bottom, 2)
-                    }
-                }
-                .padding(.horizontal, 8)
-
-                // Card body
-                VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 12) {
+                // Icon box
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(file.isAvailable ? color.opacity(0.12) : Color.white.opacity(0.04))
+                        .frame(width: 36, height: 36)
                     Image(systemName: file.icon)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(file.isAvailable ? color : .white.opacity(0.2))
-
-                    Text(file.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(file.isAvailable ? .white.opacity(0.88) : .white.opacity(0.3))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(file.tagline)
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(file.isAvailable ? 0.36 : 0.18))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundColor(file.isAvailable ? color.opacity(0.9) : .white.opacity(0.18))
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 14)
+
+                // Name + tagline
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(file.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(file.isAvailable ? .white.opacity(0.88) : .white.opacity(0.28))
+                        .lineLimit(1)
+                    Text(file.tagline)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(file.isAvailable ? 0.35 : 0.14))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                // Right indicator
+                if !file.isAvailable {
+                    Text("SOON")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(.white.opacity(0.22))
+                        .tracking(0.5)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.white.opacity(0.07)))
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(color.opacity(0.45))
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(file.isAvailable ? 0.06 : 0.025))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(
-                        file.isAvailable ? color.opacity(0.25) : Color.white.opacity(0.07),
-                        lineWidth: 0.75
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .pointerCursor()
-        .opacity(file.isAvailable ? 1.0 : 0.6)
+        .opacity(file.isAvailable ? 1.0 : 0.60)
     }
 
     @ViewBuilder

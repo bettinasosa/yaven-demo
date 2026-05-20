@@ -35,10 +35,12 @@ final class YavenAgentController: ObservableObject {
     @Published private(set) var selectedApproval: YavenApprovalRequest?
     @Published var isActivityInboxVisible = false
     @Published var proactiveSuggestions: [YavenProactiveSuggestion] = []
+    @Published var isScanningSuggestions = false
 
     private let store: YavenThreadStore
     private let taskRunner: YavenTaskRunner
     private let notificationManager = YavenNotificationManager()
+    private lazy var proactiveScanController = YavenProactiveScanController(agentController: self)
     private lazy var claudeAPI = ClaudeAPI(proxyURL: Constants.workerChatURL)
     private let skillRegistry = YavenSkillRegistry.shared
     private let gateway = YavenGateway()
@@ -91,6 +93,9 @@ final class YavenAgentController: ObservableObject {
 
     func setPanelVisible(_ isPanelVisible: Bool) {
         self.isPanelVisible = isPanelVisible
+        if isPanelVisible {
+            proactiveScanController.scanIfStale()
+        }
     }
 
     func submit(_ command: String) {
