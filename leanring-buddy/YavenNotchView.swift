@@ -105,7 +105,7 @@ struct YavenNotchView: View {
 
     // Layout constants referenced by YavenShellController.
     static let pillWidth: CGFloat        = 180
-    static let pillHeight: CGFloat       = 33
+    static let pillHeight: CGFloat       = 32
     static let panelWidth: CGFloat       = 600
     static let panelContentHeight: CGFloat = 380
     static let expandedHeight: CGFloat   = pillHeight + panelContentHeight // Default 414

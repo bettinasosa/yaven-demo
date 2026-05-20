@@ -358,16 +358,17 @@ struct YavenWidgetBar: View {
         switch logo {
         case .sfSymbol(let name, let tint):
             ZStack {
-                Circle().fill(tint.opacity(0.14)).frame(width: 32, height: 32)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(tint.opacity(0.14))
+                    .frame(width: 28, height: 28)
                 Image(systemName: name)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(tint.opacity(0.90))
             }
         case .composio(let key):
-            ZStack {
-                Circle().fill(Color.white).frame(width: 32, height: 32)
-                AsyncSVGImage(urlString: "https://logos.composio.dev/api/\(key)", size: 18)
-            }
+            AsyncSVGImage(urlString: "https://logos.composio.dev/api/\(key)", size: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(width: 28, height: 28)
         }
     }
 
@@ -1307,11 +1308,18 @@ struct YavenWidgetBar: View {
     private struct WorkflowTool: Identifiable {
         let id: String
         let name: String
-        let domain: String?         // if set, loads favicon via Google Favicon API
+        let domain: String?         // loads favicon via Google Favicon API
         let systemImage: String?    // fallback SF Symbol when no domain
         let color: Color
+        let composioKey: String?    // if set, uses Composio logo CDN (same as dashboard icons)
+
+        init(id: String, name: String, domain: String?, systemImage: String?, color: Color, composioKey: String? = nil) {
+            self.id = id; self.name = name; self.domain = domain
+            self.systemImage = systemImage; self.color = color; self.composioKey = composioKey
+        }
 
         var iconURL: String? {
+            if let key = composioKey { return "https://logos.composio.dev/api/\(key)" }
             guard let domain else { return nil }
             return "https://www.google.com/s2/favicons?domain=\(domain)&sz=128"
         }
@@ -1341,7 +1349,7 @@ struct YavenWidgetBar: View {
             tools: [
                 WorkflowTool(id: "calendar", name: "Calendar", domain: "calendar.google.com", systemImage: nil, color: Color(red: 0.45, green: 0.70, blue: 1.00)),
                 WorkflowTool(id: "hubspot", name: "HubSpot", domain: "hubspot.com", systemImage: nil, color: .orange),
-                WorkflowTool(id: "gmail", name: "Gmail", domain: "mail.google.com", systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40))
+                WorkflowTool(id: "gmail", name: "Gmail", domain: nil, systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40), composioKey: "gmail")
             ],
             icon: "doc.text.magnifyingglass",
             tabPosition: 0.18,
@@ -1356,7 +1364,7 @@ struct YavenWidgetBar: View {
             tools: [
                 WorkflowTool(id: "granola", name: "Granola", domain: "granola.so", systemImage: nil, color: Color(red: 0.35, green: 0.85, blue: 0.60)),
                 WorkflowTool(id: "hubspot", name: "HubSpot", domain: "hubspot.com", systemImage: nil, color: .orange),
-                WorkflowTool(id: "gmail", name: "Gmail", domain: "mail.google.com", systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40))
+                WorkflowTool(id: "gmail", name: "Gmail", domain: nil, systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40), composioKey: "gmail")
             ],
             icon: "phone.fill",
             tabPosition: 0.36,
@@ -1371,7 +1379,7 @@ struct YavenWidgetBar: View {
             tools: [
                 WorkflowTool(id: "granola", name: "Granola", domain: "granola.so", systemImage: nil, color: Color(red: 0.75, green: 0.50, blue: 1.00)),
                 WorkflowTool(id: "notion", name: "Notion", domain: "notion.so", systemImage: nil, color: .white),
-                WorkflowTool(id: "gmail", name: "Gmail", domain: "mail.google.com", systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40))
+                WorkflowTool(id: "gmail", name: "Gmail", domain: nil, systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40), composioKey: "gmail")
             ],
             icon: "sparkles",
             tabPosition: 0.54,
@@ -1401,7 +1409,7 @@ struct YavenWidgetBar: View {
             tools: [
                 WorkflowTool(id: "stripe", name: "Stripe", domain: "stripe.com", systemImage: nil, color: Color(red: 0.62, green: 0.56, blue: 1.00)),
                 WorkflowTool(id: "hubspot", name: "HubSpot", domain: "hubspot.com", systemImage: nil, color: .orange),
-                WorkflowTool(id: "gmail", name: "Gmail", domain: "mail.google.com", systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40))
+                WorkflowTool(id: "gmail", name: "Gmail", domain: nil, systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40), composioKey: "gmail")
             ],
             icon: "dollarsign.circle.fill",
             tabPosition: 0.27,
@@ -1414,7 +1422,7 @@ struct YavenWidgetBar: View {
             summary: "Spot scope creep and draft a clear boundary response.",
             color: Color(red: 1.00, green: 0.40, blue: 0.40),
             tools: [
-                WorkflowTool(id: "gmail", name: "Gmail", domain: "mail.google.com", systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40)),
+                WorkflowTool(id: "gmail", name: "Gmail", domain: nil, systemImage: nil, color: Color(red: 1.0, green: 0.40, blue: 0.40), composioKey: "gmail"),
                 WorkflowTool(id: "docs", name: "Google Docs", domain: "docs.google.com", systemImage: nil, color: Color(red: 0.45, green: 0.70, blue: 1.00)),
                 WorkflowTool(id: "slack", name: "Slack", domain: "slack.com", systemImage: nil, color: Color(red: 0.75, green: 0.50, blue: 1.00))
             ],
@@ -1473,24 +1481,21 @@ struct YavenWidgetBar: View {
 
             ZStack(alignment: .topLeading) {
                 Button { setWidgetFocus(.none) } label: {
-                    Text("Agents")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(.white.opacity(0.82))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(Color.white.opacity(0.045))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                        )
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Flows")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(.white.opacity(0.55))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(.white.opacity(0.08)))
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .help("Back")
-                .offset(x: 28, y: 12)
+                .offset(x: 20, y: 10)
 
                 ZStack(alignment: .topLeading) {
                     agentDrawerPerspectiveRails(
@@ -1522,7 +1527,7 @@ struct YavenWidgetBar: View {
                                 perspective: 0.52
                             )
                             .offset(x: centeredX, y: yOff)
-                            .zIndex(Double(index) + (isHovered || isPushed ? 100 : 0))
+                            .zIndex(Double(index))
                             .animation(Motion.focus, value: isHovered)
                             .animation(Motion.focus, value: isPushed)
                             .animation(Motion.focus, value: flickY)
@@ -1531,7 +1536,7 @@ struct YavenWidgetBar: View {
                     agentDrawerFront(activeWorkflow: activeWorkflow, drawerWidth: drawerWidth)
                         .frame(
                             width: drawerWidth + AgentWorkflowDrawerLayout.drawerFrontExtraWidth,
-                            height: AgentWorkflowDrawerLayout.drawerFrontHeight
+                            height: AgentWorkflowDrawerLayout.drawerFrontHeight + AgentWorkflowDrawerLayout.drawerFrontClipBleed
                         )
                         .offset(
                             x: -AgentWorkflowDrawerLayout.drawerFrontExtraWidth / 2,
@@ -1544,32 +1549,41 @@ struct YavenWidgetBar: View {
                 .offset(x: drawerX, y: AgentWorkflowDrawerLayout.drawerTopOffset)
             }
             .frame(width: proxy.size.width, height: AgentWorkflowDrawerLayout.totalHeight(for: agentWorkflowFolders.count), alignment: .topLeading)
+            .clipped()
         }
         .frame(height: AgentWorkflowDrawerLayout.totalHeight(for: agentWorkflowFolders.count))
+        .clipped()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Folder drawer geometry + layout
 
     private enum AgentWorkflowDrawerLayout {
-        static let drawerTopOffset: CGFloat       = 58
-        static let drawerBottomPadding: CGFloat   = 12
-        static let maxDrawerWidth: CGFloat        = 540
-        static let minDrawerWidth: CGFloat        = 390
-        static let horizontalMargin: CGFloat      = 108
-        static let tabHeight: CGFloat             = 32
+        static let drawerTopOffset: CGFloat       = 34
+        static let drawerBottomPadding: CGFloat   = 0
+        static let maxDrawerWidth: CGFloat        = 780
+        static let minDrawerWidth: CGFloat        = 560
+        static let horizontalMargin: CGFloat      = 64
+        static let tabHeight: CGFloat             = 31
         static let tabBottomWidthFraction: CGFloat = 0.46
-        static let tabTopWidthFraction: CGFloat   = 0.36
-        static let folderHeight: CGFloat          = 76
-        static let folderStep: CGFloat            = 39
-        static let stackTopPadding: CGFloat       = 20
-        static let hoverLift: CGFloat             = 10
-        static let pushLift: CGFloat              = 18
-        static let drawerFrontHeight: CGFloat     = 78
-        static let drawerFrontOverlap: CGFloat    = 36
-        static let drawerFrontExtraWidth: CGFloat = 62
-        static let folderHInset: CGFloat          = 50
-        static let perspectiveNarrowing: CGFloat  = 68
+        static let tabTopWidthFraction: CGFloat   = 0.38
+        static let folderHeight: CGFloat          = 118
+        static let folderStep: CGFloat            = 54
+        static let stackTopPadding: CGFloat       = 16
+        static let hoverLift: CGFloat             = 5
+        static let pushLift: CGFloat              = 10
+        static let drawerFrontHeight: CGFloat     = 82
+        static let drawerFrontOverlap: CGFloat    = 62
+        static let drawerFrontClipBleed: CGFloat  = 12
+        static let drawerFrontExtraWidth: CGFloat = 70
+        static let folderHInset: CGFloat          = 14
+        static let perspectiveNarrowing: CGFloat  = 30
+        static let folderSideSlant: CGFloat       = 24
+        static let folderCornerRadius: CGFloat    = 9
+        static let folderVisibleSideDepth: CGFloat = 25
+        static let folderIconSize: CGFloat        = 18
+        static let folderIconTopOffset: CGFloat   = 35
+        static let folderIconLeading: CGFloat     = 28
 
         static func stackHeight(for count: Int) -> CGFloat {
             guard count > 0 else { return 0 }
@@ -1606,7 +1620,7 @@ struct YavenWidgetBar: View {
         let dist = index - hi
         guard abs(dist) <= 3 else { return 0 }
         // Earlier cards fan up; later cards fan down.
-        let base: CGFloat = 9.0
+        let base: CGFloat = 4.0
         let factor = max(0.0, 1.0 - CGFloat(abs(dist) - 1) * 0.45)
         return CGFloat(dist > 0 ? 1 : -1) * base * factor
     }
@@ -1624,9 +1638,9 @@ struct YavenWidgetBar: View {
     private func agentWorkflowFolderTilt(for index: Int, isHovered: Bool, isPushed: Bool) -> Double {
         guard agentWorkflowFolders.count > 1 else { return 0 }
         let depth = Double(index) / Double(agentWorkflowFolders.count - 1)
-        let baseTilt = -2.0 + depth * 1.1
-        if isPushed { return baseTilt + 2.2 }
-        return isHovered ? baseTilt + 0.8 : baseTilt
+        let baseTilt = -0.7 + depth * 0.4
+        if isPushed { return baseTilt + 1.0 }
+        return isHovered ? baseTilt + 0.35 : baseTilt
     }
 
     private func agentDrawerPerspectiveRails(folderCount _: Int, drawerHeight: CGFloat) -> some View {
@@ -1681,7 +1695,7 @@ struct YavenWidgetBar: View {
     private func agentDrawerFront(activeWorkflow: AgentWorkflowFolder?, drawerWidth _: CGFloat) -> some View {
         let trayBorder: Color = colorScheme == .dark ? .white : .black
         let trayFill = colorScheme == .dark
-            ? Color(red: 0.08, green: 0.08, blue: 0.10)
+            ? Color.black
             : Color(red: 0.90, green: 0.90, blue: 0.93)
         let activeName = activeWorkflow.map { agentWorkflowName($0) } ?? "Select workflow"
 
@@ -1694,15 +1708,7 @@ struct YavenWidgetBar: View {
                 )
 
             HStack(alignment: .center, spacing: 10) {
-                if let activeWorkflow {
-                    HStack(spacing: 5) {
-                        ForEach(Array(activeWorkflow.tools.prefix(3))) { tool in
-                            workflowToolIcon(tool, size: 19, workflowID: activeWorkflow.id)
-                        }
-                    }
-                }
-
-                Spacer(minLength: 12)
+                Spacer(minLength: 0)
 
                 Text(activeName)
                     .font(.system(size: 11, weight: .bold))
@@ -1722,17 +1728,21 @@ struct YavenWidgetBar: View {
             .padding(.horizontal, 32)
             .padding(.top, 12)
 
-            Text("Betts interns")
+            Text("betts flows")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(Color(red: 0.13, green: 0.10, blue: 0.02))
+                .foregroundColor(.white.opacity(0.82))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 5)
                 .background(
-                    Capsule()
-                        .fill(Color(red: 0.98, green: 0.90, blue: 0.42))
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.white.opacity(0.24))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.72), lineWidth: 0.8)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 11)
+                .padding(.bottom, AgentWorkflowDrawerLayout.drawerFrontClipBleed + 11)
         }
     }
 
@@ -1749,10 +1759,10 @@ struct YavenWidgetBar: View {
             : (colorScheme == .dark ? Color.white : Color.black)
         let borderOpacity: Double = (isHovered || isPushed) ? 0.84 : 0.56
         let folderFill = colorScheme == .dark
-            ? Color(red: 0.07, green: 0.07, blue: 0.09)
+            ? Color.black
             : Color(red: 0.87, green: 0.87, blue: 0.90)
         let folderBorder = colorScheme == .dark ? Color.white : Color.black
-        let bodyRule = colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.10)
+        let outlineOpacity: Double = (isHovered || isPushed) ? 0.86 : 0.58
 
         return Button {
             withAnimation(.spring(response: 0.18, dampingFraction: 0.70)) {
@@ -1772,44 +1782,59 @@ struct YavenWidgetBar: View {
             }
         } label: {
             ZStack(alignment: .topLeading) {
-                WorkflowFolderShape(
-                    tabPosition: workflow.tabPosition,
-                    tabHeight: tabH,
-                    tabBottomFraction: AgentWorkflowDrawerLayout.tabBottomWidthFraction,
-                    tabTopFraction: AgentWorkflowDrawerLayout.tabTopWidthFraction
+                WorkflowDrawerFolderOccluderShape(
+                    sideSlant: AgentWorkflowDrawerLayout.folderSideSlant,
+                    cornerRadius: AgentWorkflowDrawerLayout.folderCornerRadius
                 )
                     .fill(folderFill)
-                    .overlay(
-                        WorkflowFolderShape(
-                            tabPosition: workflow.tabPosition,
-                            tabHeight: tabH,
-                            tabBottomFraction: AgentWorkflowDrawerLayout.tabBottomWidthFraction,
-                            tabTopFraction: AgentWorkflowDrawerLayout.tabTopWidthFraction
-                        )
-                            .stroke(folderBorder.opacity((isHovered || isPushed) ? 0.40 : 0.22), lineWidth: (isHovered || isPushed) ? 1.15 : 0.85)
-                    )
 
-                Rectangle()
-                    .fill(bodyRule)
-                    .frame(height: 0.7)
-                    .offset(y: tabH)
+                WorkflowDrawerFolderOutlineShape(
+                    tabHeight: tabH,
+                    sideSlant: AgentWorkflowDrawerLayout.folderSideSlant,
+                    visibleSideDepth: AgentWorkflowDrawerLayout.folderVisibleSideDepth,
+                    cornerRadius: AgentWorkflowDrawerLayout.folderCornerRadius
+                )
+                .stroke(
+                    folderBorder.opacity(outlineOpacity),
+                    style: StrokeStyle(lineWidth: (isHovered || isPushed) ? 1.05 : 0.85, lineCap: .round, lineJoin: .round)
+                )
+
+                HStack(spacing: 5) {
+                    ForEach(Array(workflow.tools.prefix(3))) { tool in
+                        workflowToolIcon(
+                            tool,
+                            size: AgentWorkflowDrawerLayout.folderIconSize,
+                            workflowID: workflow.id
+                        )
+                    }
+                }
+                .offset(
+                    x: AgentWorkflowDrawerLayout.folderIconLeading,
+                    y: AgentWorkflowDrawerLayout.folderIconTopOffset
+                )
+                .opacity((isHovered || isPushed) ? 1.0 : 0.82)
 
                 WorkflowTabShape(
                     tabPosition: workflow.tabPosition,
                     tabHeight: tabH,
+                    topCorner: AgentWorkflowDrawerLayout.folderCornerRadius,
                     tabBottomFraction: AgentWorkflowDrawerLayout.tabBottomWidthFraction,
                     tabTopFraction: AgentWorkflowDrawerLayout.tabTopWidthFraction
                 )
                     .fill(workflow.lightTab
                           ? (colorScheme == .dark ? Color.white : Color(red: 0.12, green: 0.12, blue: 0.14))
-                          : (colorScheme == .dark ? Color(red: 0.18, green: 0.18, blue: 0.22) : Color(red: 0.76, green: 0.76, blue: 0.80)))
+                          : (colorScheme == .dark ? Color.black : Color(red: 0.76, green: 0.76, blue: 0.80)))
                 WorkflowTabOutlineShape(
                     tabPosition: workflow.tabPosition,
                     tabHeight: tabH,
+                    topCorner: AgentWorkflowDrawerLayout.folderCornerRadius,
                     tabBottomFraction: AgentWorkflowDrawerLayout.tabBottomWidthFraction,
                     tabTopFraction: AgentWorkflowDrawerLayout.tabTopWidthFraction
                 )
-                    .stroke(tabBorderColor.opacity(borderOpacity), lineWidth: 1.0)
+                    .stroke(
+                        tabBorderColor.opacity(borderOpacity),
+                        style: StrokeStyle(lineWidth: 1.0, lineCap: .round, lineJoin: .round)
+                    )
 
                 let tabBW = folderWidth * AgentWorkflowDrawerLayout.tabBottomWidthFraction
                 let tabCenter = folderWidth * workflow.tabPosition
@@ -1822,13 +1847,14 @@ struct YavenWidgetBar: View {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundColor(idColor)
                     Text(agentWorkflowName(workflow))
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(nameColor)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                         .truncationMode(.tail)
                 }
-                .frame(width: tabBW * 0.88, alignment: .leading)
-                .offset(x: tabLeft + tabBW * 0.06, y: (tabH - 14) / 2)
+                .frame(width: tabBW * 0.92, alignment: .leading)
+                .offset(x: tabLeft + tabBW * 0.04, y: (tabH - 14) / 2)
             }
             .frame(width: folderWidth, height: AgentWorkflowDrawerLayout.folderHeight, alignment: .topLeading)
             .shadow(
@@ -2652,28 +2678,95 @@ struct YavenWidgetBar: View {
     }
 }
 
-/// Full card shape: trapezoidal tab (wider at base, narrower at top) rising from the body.
-/// Body is a flat rectangle with no corner rounding — just like a physical file card.
+/// Drawer-only occluder. It fills from the row top so later rows cover the lower edges of earlier rows.
+private struct WorkflowDrawerFolderOccluderShape: Shape {
+    var sideSlant: CGFloat
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let safeSlant = min(max(0, sideSlant), rect.width * 0.14)
+        let radius = min(max(0, cornerRadius), safeSlant)
+        let leftTop = rect.minX + safeSlant
+        let rightTop = rect.maxX - safeSlant
+
+        var path = Path()
+        path.move(to: CGPoint(x: leftTop + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: rightTop - radius, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rightTop, y: rect.minY + radius),
+            control: CGPoint(x: rightTop, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: leftTop, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: leftTop + radius, y: rect.minY),
+            control: CGPoint(x: leftTop, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Drawer-only visible outline: top lip plus short slanted sides, intentionally no bottom border.
+private struct WorkflowDrawerFolderOutlineShape: Shape {
+    var tabHeight: CGFloat
+    var sideSlant: CGFloat
+    var visibleSideDepth: CGFloat
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let topY = rect.minY + tabHeight
+        let safeSlant = min(max(0, sideSlant), rect.width * 0.14)
+        let depth = min(max(0, visibleSideDepth), max(0, rect.maxY - topY))
+        let radius = min(max(0, cornerRadius), safeSlant, depth)
+        let leftTop = rect.minX + safeSlant
+        let rightTop = rect.maxX - safeSlant
+        let leftBottom = rect.minX + max(0, safeSlant - depth * 0.45)
+        let rightBottom = rect.maxX - max(0, safeSlant - depth * 0.45)
+
+        var path = Path()
+        path.move(to: CGPoint(x: leftBottom, y: topY + depth))
+        path.addLine(to: CGPoint(x: leftTop, y: topY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: leftTop + radius, y: topY),
+            control: CGPoint(x: leftTop, y: topY)
+        )
+        path.addLine(to: CGPoint(x: rightTop - radius, y: topY))
+        path.addQuadCurve(
+            to: CGPoint(x: rightTop, y: topY + radius),
+            control: CGPoint(x: rightTop, y: topY)
+        )
+        path.addLine(to: CGPoint(x: rightBottom, y: topY + depth))
+        return path
+    }
+}
+
+/// Full card shape: trapezoidal tab rising from a body that can taper at the sides for drawer perspective.
 private struct WorkflowFolderShape: Shape {
     var tabPosition: CGFloat = 0.3
     var tabHeight: CGFloat   = 44
     var topCorner: CGFloat   = 7   // rounded top corners of the trapezoid
     var tabBottomFraction: CGFloat = 0.52
     var tabTopFraction: CGFloat = 0.42
+    var sideSlant: CGFloat = 0
 
     func path(in rect: CGRect) -> Path {
         let bodyTop  = rect.minY + tabHeight
+        let maxSideSlant = min(rect.width * 0.16, max(0, rect.height - tabHeight) * 0.8)
+        let sideInset = min(max(0, sideSlant), maxSideSlant)
+        let bodyLeftTop = rect.minX + sideInset
+        let bodyRightTop = rect.maxX - sideInset
         let bHalf = rect.width * tabBottomFraction / 2
         let tHalf = rect.width * tabTopFraction / 2
         let center = rect.minX + rect.width * tabPosition
-        let tabBL = max(rect.minX, center - bHalf)
-        let tabBR = min(rect.maxX, center + bHalf)
+        let tabBL = max(bodyLeftTop, center - bHalf)
+        let tabBR = min(bodyRightTop, center + bHalf)
         let tabTL = max(rect.minX, center - tHalf)
         let tabTR = min(rect.maxX, center + tHalf)
 
         var path = Path()
-        // Start at far-left of body top
-        path.move(to: CGPoint(x: rect.minX, y: bodyTop))
+        path.move(to: CGPoint(x: bodyLeftTop, y: bodyTop))
         // Left shoulder to tab base
         path.addLine(to: CGPoint(x: tabBL, y: bodyTop))
         // Slope up to top-left, rounded corner
@@ -2687,11 +2780,11 @@ private struct WorkflowFolderShape: Shape {
         // Slope back down to body top
         path.addLine(to: CGPoint(x: tabBR, y: bodyTop))
         // Right shoulder to edge
-        path.addLine(to: CGPoint(x: rect.maxX, y: bodyTop))
-        // Body — flat rectangle, zero rounding
+        path.addLine(to: CGPoint(x: bodyRightTop, y: bodyTop))
+        // Body sides can slant outward to sell the open-drawer perspective.
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
         path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: bodyTop))
+        path.addLine(to: CGPoint(x: bodyLeftTop, y: bodyTop))
         path.closeSubpath()
         return path
     }

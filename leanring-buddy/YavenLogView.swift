@@ -2,7 +2,7 @@
 //  YavenLogView.swift
 //  leanring-buddy
 //
-//  Activity Log audit pane for reviewing completed Yaven workflows.
+//  Activity Log with 4 selectable layout options (A/B/C/D).
 //  All data is static / fake for the demo.
 //
 
@@ -35,9 +35,22 @@ private struct LogTool: Identifiable, Equatable {
     let name: String
     let domain: String?
     let systemImage: String?
+    /// When set, loads from Composio logo CDN instead of Google favicon API.
+    let composioKey: String?
 
-    var id: String { domain ?? systemImage ?? name }
+    init(name: String, domain: String? = nil, systemImage: String? = nil, composioKey: String? = nil) {
+        self.name = name
+        self.domain = domain
+        self.systemImage = systemImage
+        self.composioKey = composioKey
+    }
+
+    var id: String { composioKey ?? domain ?? systemImage ?? name }
+
     var iconURL: String? {
+        if let key = composioKey {
+            return "https://logos.composio.dev/api/\(key)"
+        }
         guard let domain else { return nil }
         return "https://www.google.com/s2/favicons?domain=\(domain)&sz=128"
     }
@@ -88,19 +101,15 @@ private struct LogWorkflow: Identifiable {
             .replacingOccurrences(of: "am", with: "")
             .replacingOccurrences(of: "pm", with: "")
         let timeParts = timeOnly.split(separator: ":").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-
         guard let rawHour = timeParts.first else { return 0 }
-
         var hour = rawHour
         if isPM && hour < 12 { hour += 12 }
         if isAM && hour == 12 { hour = 0 }
-
         return hour * 60 + (timeParts.dropFirst().first ?? 0)
     }
 
     var compactTitle: String {
         guard let firstTitle = node.cards.first?.title else { return node.source.rawValue }
-
         switch node.source {
         case .meetingLoop:
             return firstTitle.replacingOccurrences(of: " — meeting notes", with: "")
@@ -141,66 +150,37 @@ private struct LogWorkflow: Identifiable {
     var outputs: [LogOutputItem] {
         if node.source == .linkedIn, let batchCard = node.cards.first {
             return [
-                LogOutputItem(
-                    id: batchCard.id,
-                    title: outputTitle(for: batchCard),
-                    leadingTimeLabel: nil,
-                    statusLabel: batchCard.kind.statusLabel,
-                    destination: .notion,
-                    approvalTooltip: nil
-                ),
-                LogOutputItem(
-                    id: "\(node.id)-approved",
-                    title: "Approved",
-                    leadingTimeLabel: approvalTime,
-                    statusLabel: nil,
-                    destination: nil,
-                    approvalTooltip: "Approved by you at \(approvalTime)"
-                ),
-                LogOutputItem(
-                    id: "\(node.id)-linkedin-sent",
-                    title: "Sent to LinkedIn",
-                    leadingTimeLabel: nil,
-                    statusLabel: "View on LinkedIn",
-                    destination: .linkedIn,
-                    approvalTooltip: nil
-                ),
+                LogOutputItem(id: batchCard.id, title: outputTitle(for: batchCard),
+                              leadingTimeLabel: nil, statusLabel: batchCard.kind.statusLabel,
+                              destination: .notion, approvalTooltip: nil),
+                LogOutputItem(id: "\(node.id)-approved", title: "Approved",
+                              leadingTimeLabel: approvalTime, statusLabel: nil,
+                              destination: nil, approvalTooltip: "Approved by you at \(approvalTime)"),
+                LogOutputItem(id: "\(node.id)-linkedin-sent", title: "Sent to LinkedIn",
+                              leadingTimeLabel: nil, statusLabel: "View on LinkedIn",
+                              destination: .linkedIn, approvalTooltip: nil),
             ]
         }
-
         var items = node.cards.map { card in
-            LogOutputItem(
-                id: card.id,
-                title: outputTitle(for: card),
-                leadingTimeLabel: nil,
-                statusLabel: card.kind.statusLabel,
-                destination: card.kind.destinationTool,
-                approvalTooltip: card.kind == .emailDraft ? "Approved by you at \(approvalTime)" : nil
-            )
+            LogOutputItem(id: card.id, title: outputTitle(for: card),
+                          leadingTimeLabel: nil, statusLabel: card.kind.statusLabel,
+                          destination: card.kind.destinationTool,
+                          approvalTooltip: card.kind == .emailDraft ? "Approved by you at \(approvalTime)" : nil)
         }
-
         if node.source == .meetingLoop {
-            items.append(
-                LogOutputItem(
-                    id: "\(node.id)-hubspot-note",
-                    title: "HubSpot call note",
-                    leadingTimeLabel: nil,
-                    statusLabel: LogArtifactKind.hubSpotNote.statusLabel,
-                    destination: .hubSpot,
-                    approvalTooltip: "Approved by you at \(approvalTime)"
-                )
-            )
+            items.append(LogOutputItem(
+                id: "\(node.id)-hubspot-note", title: "HubSpot call note",
+                leadingTimeLabel: nil, statusLabel: LogArtifactKind.hubSpotNote.statusLabel,
+                destination: .hubSpot, approvalTooltip: "Approved by you at \(approvalTime)"
+            ))
         }
-
         return items
     }
 
     private func outputTitle(for card: LogCard) -> String {
         switch card.kind {
-        case .meetingNote:
-            return "Meeting notes"
-        case .actionItems, .emailDraft, .linkedInBatch, .research, .hubSpotNote:
-            return card.title
+        case .meetingNote:   return "Meeting notes"
+        default:             return card.title
         }
     }
 
@@ -219,26 +199,10 @@ private struct LogWorkflow: Identifiable {
     func matchesSearch(_ searchText: String) -> Bool {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
-
-        let workflowFields = [
-            compactTitle,
-            title,
-            workflowType,
-            node.timeLabel,
-        ] + sourceTools.map(\.name)
-
-        let outputFields = outputs.flatMap { output in
-            [
-                output.title,
-                output.statusLabel ?? "",
-                output.destination?.name ?? "",
-                output.approvalTooltip ?? "",
-            ]
-        }
-
-        return (workflowFields + outputFields).contains {
-            $0.localizedCaseInsensitiveContains(query)
-        }
+        let fields = [compactTitle, title, workflowType, node.timeLabel]
+            + sourceTools.map(\.name)
+            + outputs.flatMap { [$0.title, $0.statusLabel ?? "", $0.destination?.name ?? ""] }
+        return fields.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }
 
@@ -256,72 +220,108 @@ private extension LogArtifactKind {
 }
 
 private extension LogTool {
-    static let calendar = LogTool(name: "Calendar", domain: "calendar.google.com", systemImage: nil)
-    static let gmail = LogTool(name: "Gmail", domain: "mail.google.com", systemImage: nil)
-    static let granola = LogTool(name: "Granola", domain: "granola.so", systemImage: nil)
-    static let hubSpot = LogTool(name: "HubSpot", domain: "hubspot.com", systemImage: nil)
-    static let linkedIn = LogTool(name: "LinkedIn", domain: "linkedin.com", systemImage: nil)
-    static let memory = LogTool(name: "Memory", domain: nil, systemImage: "archivebox.fill")
-    static let notion = LogTool(name: "Notion", domain: "notion.so", systemImage: nil)
+    static let calendar = LogTool(name: "Calendar",  domain: "calendar.google.com")
+    // Gmail: Composio CDN gives the red envelope icon, same source used in the main dashboard
+    static let gmail    = LogTool(name: "Gmail",     composioKey: "gmail")
+    static let granola  = LogTool(name: "Granola",   domain: "granola.so")
+    static let hubSpot  = LogTool(name: "HubSpot",   domain: "hubspot.com")
+    static let linkedIn = LogTool(name: "LinkedIn",  domain: "linkedin.com")
+    static let memory   = LogTool(name: "Memory",    systemImage: "archivebox.fill")
+    static let notion   = LogTool(name: "Notion",    domain: "notion.so")
 }
 
 // MARK: - Fake data
 
 private let fakeNodes: [LogNode] = [
     LogNode(id: "n1", timeLabel: "Today  9:34am", source: .meetingLoop, cards: [
-        LogCard(id: "n1c1", kind: .meetingNote, title: "Product sync — meeting notes"),
-        LogCard(id: "n1c2", kind: .actionItems, title: "Action items (3)"),
-        LogCard(id: "n1c3", kind: .emailDraft,  title: "Follow-up to Jamie Chen"),
+        LogCard(id: "n1c1", kind: .meetingNote,  title: "Product sync — meeting notes"),
+        LogCard(id: "n1c2", kind: .actionItems,  title: "Action items (3)"),
+        LogCard(id: "n1c3", kind: .emailDraft,   title: "Follow-up to Jamie Chen"),
     ]),
     LogNode(id: "n2", timeLabel: "Today  8:00am", source: .linkedIn, cards: [
         LogCard(id: "n2c1", kind: .linkedInBatch, title: "Outreach batch — 10 drafts"),
     ]),
     LogNode(id: "n3", timeLabel: "Yesterday  3:12pm", source: .meetingLoop, cards: [
-        LogCard(id: "n3c1", kind: .meetingNote, title: "Design review — meeting notes"),
-        LogCard(id: "n3c2", kind: .actionItems, title: "Action items (2)"),
-        LogCard(id: "n3c3", kind: .emailDraft,  title: "Follow-up to Priya Mehta"),
+        LogCard(id: "n3c1", kind: .meetingNote,  title: "Design review — meeting notes"),
+        LogCard(id: "n3c2", kind: .actionItems,  title: "Action items (2)"),
+        LogCard(id: "n3c3", kind: .emailDraft,   title: "Follow-up to Priya Mehta"),
     ]),
     LogNode(id: "n4", timeLabel: "Yesterday  8:00am", source: .linkedIn, cards: [
         LogCard(id: "n4c1", kind: .linkedInBatch, title: "Outreach batch — 8 drafts"),
     ]),
     LogNode(id: "n5", timeLabel: "Mon 19 May  2:45pm", source: .meetingLoop, cards: [
-        LogCard(id: "n5c1", kind: .meetingNote, title: "Investor update prep"),
-        LogCard(id: "n5c2", kind: .actionItems, title: "Action items (1)"),
+        LogCard(id: "n5c1", kind: .meetingNote,  title: "Investor update prep"),
+        LogCard(id: "n5c2", kind: .actionItems,  title: "Action items (1)"),
     ]),
     LogNode(id: "n6", timeLabel: "Mon 19 May  8:00am", source: .linkedIn, cards: [
         LogCard(id: "n6c1", kind: .linkedInBatch, title: "Outreach batch — 10 drafts"),
     ]),
     LogNode(id: "n7", timeLabel: "Mon 19 May  11:20am", source: .manual, cards: [
-        LogCard(id: "n7c1", kind: .research, title: "Research summary — Notion AI vs Yaven positioning"),
+        LogCard(id: "n7c1", kind: .research, title: "Research summary — Notion AI vs Yaven"),
     ]),
 ]
 
 private let fakeWorkflows = fakeNodes.map { LogWorkflow(node: $0) }
 
-private struct LogWorkflowSection: Identifiable {
+private struct LogSection: Identifiable {
     let dayLabel: String
     var workflows: [LogWorkflow]
-
     var id: String { dayLabel }
 }
 
-private let fakeWorkflowSections: [LogWorkflowSection] = {
-    var sections: [LogWorkflowSection] = []
-
-    for workflow in fakeWorkflows {
-        if let sectionIndex = sections.firstIndex(where: { $0.dayLabel == workflow.dayLabel }) {
-            sections[sectionIndex].workflows.append(workflow)
+private let fakeLogSections: [LogSection] = {
+    var sections: [LogSection] = []
+    for wf in fakeWorkflows {
+        if let i = sections.firstIndex(where: { $0.dayLabel == wf.dayLabel }) {
+            sections[i].workflows.append(wf)
         } else {
-            sections.append(LogWorkflowSection(dayLabel: workflow.dayLabel, workflows: [workflow]))
+            sections.append(LogSection(dayLabel: wf.dayLabel, workflows: [wf]))
+        }
+    }
+    for i in sections.indices {
+        sections[i].workflows.sort { $0.hourSortValue > $1.hourSortValue }
+    }
+    return sections
+}()
+
+// MARK: - Layout options
+
+private enum LogLayout: String, CaseIterable, Identifiable {
+    case timeline = "A"
+    case table    = "B"
+    case cards    = "C"
+    case feed     = "D"
+
+    var id: String { rawValue }
+    var description: String {
+        switch self {
+        case .timeline: return "Timeline"
+        case .table:    return "Table"
+        case .cards:    return "Cards"
+        case .feed:     return "Feed"
+        }
+    }
+}
+
+// MARK: - Source accent colours
+
+private enum LogSourceStyle {
+    static func accentColor(_ source: LogSource) -> Color {
+        switch source {
+        case .meetingLoop: return Color(red: 0.24, green: 0.88, blue: 0.62)
+        case .linkedIn:    return Color(red: 0.47, green: 0.72, blue: 1.00)
+        case .manual:      return Color.white.opacity(0.50)
         }
     }
 
-    for sectionIndex in sections.indices {
-        sections[sectionIndex].workflows.sort { $0.hourSortValue > $1.hourSortValue }
+    static func pillBackground(_ source: LogSource) -> Color {
+        switch source {
+        case .meetingLoop: return Color(red: 0.20, green: 0.88, blue: 0.60).opacity(0.13)
+        case .linkedIn:    return Color(red: 0.25, green: 0.52, blue: 0.96).opacity(0.15)
+        case .manual:      return Color.white.opacity(0.08)
+        }
     }
-
-    return sections
-}()
+}
 
 // MARK: - Root view
 
@@ -329,7 +329,8 @@ struct YavenLogView: View {
     private let onOpenFlow: (String) -> Void
 
     @State private var searchText = ""
-    @State private var expandedWorkflowIDs: Set<String> = Set(fakeWorkflows.prefix(1).map(\.id))
+    @State private var layout: LogLayout = .timeline
+    @State private var expandedIDs: Set<String> = Set(fakeWorkflows.prefix(1).map(\.id))
 
     init(onOpenFlow: @escaping (String) -> Void = { _ in }) {
         self.onOpenFlow = onOpenFlow
@@ -337,57 +338,28 @@ struct YavenLogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
-                .padding(.horizontal, 28)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
+            // Search + layout picker
+            VStack(spacing: 8) {
+                searchBar
+                layoutPicker
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
 
             Divider().opacity(0.08)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Flat timeline — no section headers; day separators appear inline
-                    ForEach(Array(fakeWorkflowSections.enumerated()), id: \.element.id) { sectionIndex, section in
-                        // Day separator chip before each section (except the first)
-                        if sectionIndex > 0 {
-                            LogDaySeparator(label: section.dayLabel)
-                                .padding(.vertical, 6)
-                        } else {
-                            // First section: small date badge at very top
-                            LogDayBadge(label: section.dayLabel)
-                                .padding(.bottom, 6)
-                        }
-
-                        ForEach(Array(section.workflows.enumerated()), id: \.element.id) { index, workflow in
-                            let isLastInSection = index == section.workflows.count - 1
-                            let isLastOverall = sectionIndex == fakeWorkflowSections.count - 1 && isLastInSection
-                            LogTimelineWorkflowRow(
-                                workflow: workflow,
-                                isLast: isLastOverall,
-                                isExpanded: expandedWorkflowIDs.contains(workflow.id),
-                                matchesSearch: workflow.matchesSearch(searchText),
-                                onOpenFlow: onOpenFlow,
-                                onToggleExpansion: {
-                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                                        if expandedWorkflowIDs.contains(workflow.id) {
-                                            expandedWorkflowIDs.remove(workflow.id)
-                                        } else {
-                                            expandedWorkflowIDs.insert(workflow.id)
-                                        }
-                                    }
-                                }
-                            )
-                            .animation(.easeOut(duration: 0.15).delay(Double(index) * 0.012), value: searchText)
-                        }
-                    }
-                }
-                .padding(.horizontal, 28)
-                .padding(.top, 10)
-                .padding(.bottom, 28)
+                layoutContent
+                    .padding(.horizontal, 28)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    // MARK: Search bar
 
     private var searchBar: some View {
         HStack(spacing: 7) {
@@ -407,312 +379,672 @@ struct YavenLogView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.09), lineWidth: 0.5))
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: searchText.isEmpty)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color.white.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(Color.white.opacity(0.09), lineWidth: 0.5))
     }
-}
 
-// MARK: - Day labels
+    // MARK: Layout picker  A / B / C / D
 
-private struct LogDayBadge: View {
-    let label: String
-    var body: some View {
-        Text(label.uppercased())
-            .font(.system(size: 9.5, weight: .bold))
-            .foregroundColor(.white.opacity(0.32))
-            .tracking(0.8)
-            .padding(.leading, 32)  // aligns past trunk column
+    private var layoutPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(LogLayout.allCases) { option in
+                let isSelected = layout == option
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.74)) {
+                        layout = option
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(option.rawValue)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        if isSelected {
+                            Text(option.description)
+                                .font(.system(size: 10, weight: .semibold))
+                                .fixedSize()
+                                .transition(.opacity.combined(with: .scale(scale: 0.75, anchor: .leading)))
+                        }
+                    }
+                    .foregroundColor(isSelected ? .white.opacity(0.92) : .white.opacity(0.30))
+                    .padding(.horizontal, isSelected ? 9 : 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(isSelected ? Color.white.opacity(0.13) : Color.clear)
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(isSelected ? Color.white.opacity(0.22) : Color.clear, lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .animation(.spring(response: 0.28, dampingFraction: 0.74), value: isSelected)
+            }
+            Spacer()
+            Text("\(totalCount) runs")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.22))
+        }
     }
-}
 
-private struct LogDaySeparator: View {
-    let label: String
-    var body: some View {
-        HStack(spacing: 0) {
-            // Trunk-width spacer so label aligns with content column
-            Rectangle().fill(Color.clear).frame(width: 22)
-            Spacer().frame(width: 10)
-            Text(label.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
-                .foregroundColor(.white.opacity(0.30))
-                .tracking(0.8)
-            Rectangle()
-                .fill(Color.white.opacity(0.09))
-                .frame(height: 0.5)
-                .padding(.leading, 8)
+    private var totalCount: Int { fakeWorkflows.count }
+
+    // MARK: Layout dispatcher
+
+    @ViewBuilder
+    private var layoutContent: some View {
+        switch layout {
+        case .timeline: layoutA
+        case .table:    layoutB
+        case .cards:    layoutC
+        case .feed:     layoutD
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // LAYOUT A — Timeline trunk
+    // Dates: inline day-separator rules between groups
+    // Micro: rotating chevron, icon scale on hover,
+    //        output items stagger-fade in on expand
+    // ──────────────────────────────────────────────
+
+    private var layoutA: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(fakeLogSections.enumerated()), id: \.element.id) { si, section in
+                if si > 0 {
+                    // Day-change separator — part of the trunk
+                    HStack(spacing: 0) {
+                        Rectangle().fill(Color.white.opacity(0.10))
+                            .frame(width: 1.5, height: 16)
+                            .frame(width: 22, alignment: .center)
+                        Rectangle().fill(Color.white.opacity(0.09)).frame(height: 0.5)
+                            .padding(.leading, 10)
+                        Text(section.dayLabel.uppercased())
+                            .font(.system(size: 9, weight: .bold)).tracking(0.8)
+                            .foregroundColor(.white.opacity(0.28))
+                            .fixedSize()
+                            .padding(.horizontal, 8)
+                        Rectangle().fill(Color.white.opacity(0.09)).frame(height: 0.5)
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    Text(section.dayLabel.uppercased())
+                        .font(.system(size: 9, weight: .bold)).tracking(0.8)
+                        .foregroundColor(.white.opacity(0.28))
+                        .padding(.leading, 22 + 10)
+                        .padding(.bottom, 6)
+                }
+
+                ForEach(Array(section.workflows.enumerated()), id: \.element.id) { wi, wf in
+                    let isLast = si == fakeLogSections.count - 1 && wi == section.workflows.count - 1
+                    LogRowA(
+                        workflow: wf, isLast: isLast,
+                        isExpanded: expandedIDs.contains(wf.id),
+                        matchesSearch: wf.matchesSearch(searchText),
+                        onToggle: { toggleExpand(wf.id) }
+                    )
+                    .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                }
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // LAYOUT B — Two-column table
+    // Dates: sticky left column per day group
+    // Times: shown large in left column under date
+    // Micro: row highlight on hover, no backgrounds
+    //        collapsed — expand replaces row in place
+    // ──────────────────────────────────────────────
+
+    private var layoutB: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(fakeLogSections) { section in
+                // Date header row
+                HStack(spacing: 0) {
+                    Text(section.dayLabel)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.28))
+                        .frame(width: 72, alignment: .leading)
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
+                }
+                .padding(.bottom, 4)
+                .padding(.top, 10)
+
+                ForEach(section.workflows) { wf in
+                    LogRowB(
+                        workflow: wf,
+                        isExpanded: expandedIDs.contains(wf.id),
+                        matchesSearch: wf.matchesSearch(searchText),
+                        onToggle: { toggleExpand(wf.id) }
+                    )
+                    .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                }
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // LAYOUT C — Rich cards, no trunk
+    // Dates: floating chip in card top-right corner
+    // Times: large, inside the card header
+    // Micro: card lifts on hover (shadow + slight y),
+    //        source icons visible collapsed,
+    //        expand slides content from within card
+    // ──────────────────────────────────────────────
+
+    private var layoutC: some View {
+        VStack(spacing: 8) {
+            ForEach(fakeWorkflows) { wf in
+                LogRowC(
+                    workflow: wf,
+                    isExpanded: expandedIDs.contains(wf.id),
+                    matchesSearch: wf.matchesSearch(searchText),
+                    onToggle: { toggleExpand(wf.id) }
+                )
+                .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // LAYOUT D — Activity feed, one pill per run
+    // Dates: floating sticky chip above each day group
+    // Times: inline at start of each pill
+    // Micro: pill expands to full detail inline on tap,
+    //        unselected pills dim slightly,
+    //        very compact — more runs visible at once
+    // ──────────────────────────────────────────────
+
+    private var layoutD: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(fakeLogSections.enumerated()), id: \.element.id) { si, section in
+                // Floating day badge
+                HStack {
+                    Text(section.dayLabel)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white.opacity(0.36))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Color.white.opacity(0.07)))
+                        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+                    Spacer()
+                }
+                .padding(.top, si == 0 ? 0 : 12)
+                .padding(.bottom, 6)
+
+                VStack(spacing: 3) {
+                    ForEach(section.workflows) { wf in
+                        LogRowD(
+                            workflow: wf,
+                            isExpanded: expandedIDs.contains(wf.id),
+                            anyExpanded: !expandedIDs.isEmpty,
+                            matchesSearch: wf.matchesSearch(searchText),
+                            onToggle: { toggleExpand(wf.id) }
+                        )
+                        .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleExpand(_ id: String) {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            if expandedIDs.contains(id) { expandedIDs.remove(id) }
+            else { expandedIDs.insert(id) }
         }
     }
 }
 
-// MARK: - Workflow timeline row
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout A rows (Timeline)
+// ═══════════════════════════════════════════════════════
 
-private struct LogTimelineWorkflowRow: View {
+private struct LogRowA: View {
     let workflow: LogWorkflow
     let isLast: Bool
     let isExpanded: Bool
     let matchesSearch: Bool
-    let onOpenFlow: (String) -> Void
-    let onToggleExpansion: () -> Void
+    let onToggle: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            trunkColumn
-            contentColumn
-        }
-        .opacity(matchesSearch ? 1.0 : 0.18)
-        .animation(.easeOut(duration: 0.12), value: matchesSearch)
-    }
-
-    private var trunkColumn: some View {
-        ZStack(alignment: .top) {
-            // Continuous trunk line
-            Rectangle()
-                .fill(Color.white.opacity(0.10))
-                .frame(width: 1.5)
-                .frame(maxHeight: .infinity)
-                .padding(.top, 20)
-                .opacity(isLast ? 0 : 1)
-
-            // Node dot — brightens when expanded
-            let dotFill = isExpanded ? Color.white.opacity(0.80) : Color.white.opacity(0.25)
-            let dotStroke = isExpanded ? Color.white.opacity(0.30) : Color.white.opacity(0.10)
-            Circle()
-                .fill(dotFill)
-                .overlay(Circle().stroke(dotStroke, lineWidth: 0.5))
-                .frame(width: 8, height: 8)
-                .padding(.top, 14)
-                .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isExpanded)
-        }
-        .frame(width: 22)
-    }
-
-    private var contentColumn: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Time label — prominent, with day context on hover
-            HStack(spacing: 5) {
-                Text(workflow.hourLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(isExpanded ? 0.55 : 0.36))
-                    .animation(.easeOut(duration: 0.12), value: isExpanded)
+            // Trunk column
+            ZStack(alignment: .top) {
+                if !isLast {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.10))
+                        .frame(width: 1.5, alignment: .center)
+                        .frame(maxHeight: .infinity)
+                        .padding(.top, 18)
+                }
+                Circle()
+                    .fill(isExpanded ? Color.white.opacity(0.80) : Color.white.opacity(0.24))
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 13)
+                    .animation(.spring(response: 0.26, dampingFraction: 0.7), value: isExpanded)
             }
-            .padding(.top, 10)
+            .frame(width: 22)
 
-            collapsedRow
+            VStack(alignment: .leading, spacing: 4) {
+                Text(workflow.hourLabel)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(isExpanded ? 0.50 : 0.32))
+                    .padding(.top, 9)
+                    .animation(.easeOut(duration: 0.12), value: isExpanded)
+
+                // Collapsed card
+                HStack(spacing: 0) {
+                    LogToolIcon(tool: workflow.originTool, size: 28, bgSize: 28)
+                        .scaleEffect(isHovered ? 1.07 : 1.0)
+                        .animation(.spring(response: 0.22, dampingFraction: 0.64), value: isHovered)
+                        .padding(.trailing, 8)
+
+                    HStack(spacing: 5) {
+                        Text(workflow.compactTitle)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.88))
+                            .lineLimit(1)
+                        let count = workflow.outputs.count
+                        if count > 0 {
+                            Text("\(count)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.white.opacity(0.42))
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.white.opacity(0.09)))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 5) {
+                        Text(workflow.workflowType)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(LogSourceStyle.accentColor(workflow.node.source))
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(Capsule()
+                                .fill(LogSourceStyle.pillBackground(workflow.node.source)))
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white.opacity(isExpanded ? 0.45 : 0.20))
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            .frame(width: 18, height: 18)
+                            .animation(.spring(response: 0.26, dampingFraction: 0.7), value: isExpanded)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isHovered || isExpanded
+                          ? Color.white.opacity(0.082) : Color.white.opacity(0.048))
+                    .animation(.easeOut(duration: 0.10), value: isHovered))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isExpanded ? Color.white.opacity(0.15) : Color.white.opacity(0.07), lineWidth: 0.5))
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .onTapGesture(perform: onToggle)
+                .onHover { isHovered = $0 }
+                .pointerCursor()
+
+                if isExpanded {
+                    LogExpandedDetail(workflow: workflow)
+                        .transition(.opacity.combined(with: .offset(y: -6)))
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.bottom, isExpanded ? 14 : 8)
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout B rows (Table)
+// ═══════════════════════════════════════════════════════
+
+private struct LogRowB: View {
+    let workflow: LogWorkflow
+    let isExpanded: Bool
+    let matchesSearch: Bool
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
+                // Time in left fixed column
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(workflow.hourLabel)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundColor(isExpanded
+                                         ? LogSourceStyle.accentColor(workflow.node.source)
+                                         : .white.opacity(0.42))
+                        .animation(.easeOut(duration: 0.12), value: isExpanded)
+                    let count = workflow.outputs.count
+                    Text("\(count) output\(count == 1 ? "" : "s")")
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.22))
+                }
+                .frame(width: 68, alignment: .leading)
+
+                // Separator line
+                Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1, height: 32)
+                    .padding(.horizontal, 8)
+
+                // Icon + title
+                LogToolIcon(tool: workflow.originTool, size: 24, bgSize: 24)
+                    .padding(.trailing, 8)
+
+                Text(workflow.compactTitle)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundColor(.white.opacity(0.84))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Flow tag
+                Text(workflow.workflowType)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundColor(LogSourceStyle.accentColor(workflow.node.source))
+                    .lineLimit(1)
+                    .padding(.trailing, 6)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.white.opacity(isExpanded ? 0.55 : 0.18))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.spring(response: 0.26, dampingFraction: 0.7), value: isExpanded)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 10)
+            .background(isHovered || isExpanded
+                        ? Color.white.opacity(0.06) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .animation(.easeOut(duration: 0.09), value: isHovered)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onToggle)
+            .onHover { isHovered = $0 }
+            .pointerCursor()
 
             if isExpanded {
-                expandedWorkflow
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: -4)),
-                            removal: .opacity.combined(with: .offset(y: -2))
-                        )
-                    )
+                LogExpandedDetail(workflow: workflow)
+                    .padding(.leading, 76)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .offset(y: -4)))
             }
+
+            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5)
         }
-        .padding(.leading, 10)
-        .padding(.bottom, isExpanded ? 14 : 8)
     }
+}
 
-    private var collapsedRow: some View {
-        HStack(spacing: 0) {
-            // Origin icon with hover scale
-            LogToolIcon(tool: workflow.originTool, size: 30, backgroundSize: 30)
-                .scaleEffect(isHovered ? 1.06 : 1.0)
-                .animation(.spring(response: 0.24, dampingFraction: 0.65), value: isHovered)
-                .padding(.trailing, 9)
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout C rows (Cards)
+// ═══════════════════════════════════════════════════════
 
-            // Title + output count badge
-            HStack(spacing: 6) {
-                Text(workflow.compactTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.88))
-                    .lineLimit(1)
+private struct LogRowC: View {
+    let workflow: LogWorkflow
+    let isExpanded: Bool
+    let matchesSearch: Bool
+    let onToggle: () -> Void
 
-                // Output count dot
-                let outputCount = workflow.outputs.count
-                if outputCount > 0 {
-                    Text("\(outputCount)")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white.opacity(0.50))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.white.opacity(0.10)))
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Card header
+            HStack(alignment: .top, spacing: 0) {
+                // Left accent strip
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(LogSourceStyle.accentColor(workflow.node.source))
+                    .frame(width: 3)
+                    .padding(.vertical, 10)
+                    .padding(.trailing, 10)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    // Top row: title + date chip
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(workflow.compactTitle)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.90))
+                                .lineLimit(1)
+                            Text(workflow.workflowType)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(LogSourceStyle.accentColor(workflow.node.source))
+                        }
+                        Spacer()
+                        // Date+time in corner
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(workflow.hourLabel)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.55))
+                            Text(workflow.dayLabel)
+                                .font(.system(size: 9.5))
+                                .foregroundColor(.white.opacity(0.28))
+                        }
+                    }
+
+                    // Source icons always visible
+                    HStack(spacing: 5) {
+                        ForEach(workflow.sourceTools) { tool in
+                            LogToolIcon(tool: tool, size: 12, bgSize: 22)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white.opacity(isExpanded ? 0.50 : 0.22))
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            .animation(.spring(response: 0.26, dampingFraction: 0.7), value: isExpanded)
+                    }
                 }
+                .padding(.vertical, 10)
+                .padding(.trailing, 12)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Flow type tag + chevron
-            HStack(spacing: 6) {
-                Button {
-                    onOpenFlow(workflow.workflowType)
-                } label: {
-                    Text(workflow.workflowType)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(LogSourceColors.text(for: workflow.node.source))
-                        .lineLimit(1)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule()
-                                .fill(LogSourceColors.background(for: workflow.node.source))
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .help("Open \(workflow.workflowType) flow")
-
-                // Rotating chevron (not a swap)
-                Button(action: onToggleExpansion) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white.opacity(isExpanded ? 0.50 : 0.22))
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                        .frame(width: 20, height: 20)
-                        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: isExpanded)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+            if isExpanded {
+                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 0.5)
+                    .padding(.horizontal, 12)
+                LogExpandedDetail(workflow: workflow)
+                    .padding(.leading, 13)
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .offset(y: -4)))
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isHovered || isExpanded ? Color.white.opacity(0.082) : Color.white.opacity(0.048))
-                .animation(.easeOut(duration: 0.10), value: isHovered)
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(isHovered ? Color.white.opacity(0.085) : Color.white.opacity(0.055))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(isExpanded ? Color.white.opacity(0.16) : Color.white.opacity(0.07), lineWidth: 0.5)
-                .animation(.easeOut(duration: 0.15), value: isExpanded)
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(isExpanded
+                        ? LogSourceStyle.accentColor(workflow.node.source).opacity(0.30)
+                        : Color.white.opacity(0.08), lineWidth: 0.75)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onTapGesture(perform: onToggleExpansion)
+        .shadow(color: .black.opacity(isHovered ? 0.24 : 0.10),
+                radius: isHovered ? 12 : 4, x: 0, y: isHovered ? 4 : 1)
+        .offset(y: isHovered ? -1 : 0)
+        .animation(.spring(response: 0.22, dampingFraction: 0.70), value: isHovered)
+        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .onTapGesture(perform: onToggle)
         .onHover { isHovered = $0 }
         .pointerCursor()
     }
+}
 
-    private var expandedWorkflow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Sources strip
-            HStack(spacing: 6) {
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout D rows (Feed pills)
+// ═══════════════════════════════════════════════════════
+
+private struct LogRowD: View {
+    let workflow: LogWorkflow
+    let isExpanded: Bool
+    let anyExpanded: Bool
+    let matchesSearch: Bool
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Pill row
+            HStack(spacing: 8) {
+                // Time chip
+                Text(workflow.hourLabel)
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundColor(isExpanded
+                                     ? LogSourceStyle.accentColor(workflow.node.source)
+                                     : .white.opacity(0.38))
+                    .frame(width: 52, alignment: .trailing)
+                    .animation(.easeOut(duration: 0.10), value: isExpanded)
+
+                // Icon
+                LogToolIcon(tool: workflow.originTool, size: 18, bgSize: 22)
+
+                // Title
+                Text(workflow.compactTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(isExpanded ? 0.92 : 0.75))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.easeOut(duration: 0.10), value: isExpanded)
+
+                // Status: output count dot + flow label
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(LogSourceStyle.accentColor(workflow.node.source))
+                        .frame(width: 5, height: 5)
+                    Text(workflow.workflowType)
+                        .font(.system(size: 9.5))
+                        .foregroundColor(.white.opacity(0.30))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isExpanded
+                          ? Color.white.opacity(0.08)
+                          : (isHovered ? Color.white.opacity(0.06) : Color.clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isExpanded ? Color.white.opacity(0.12) : Color.clear, lineWidth: 0.5)
+            )
+            // Dim non-expanded rows when something else is open
+            .opacity(anyExpanded && !isExpanded ? 0.45 : 1.0)
+            .animation(.easeOut(duration: 0.14), value: isExpanded)
+            .animation(.easeOut(duration: 0.14), value: anyExpanded)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onTapGesture(perform: onToggle)
+            .onHover { isHovered = $0 }
+            .pointerCursor()
+
+            if isExpanded {
+                LogExpandedDetail(workflow: workflow)
+                    .padding(.leading, 60)  // aligns with title column
+                    .padding(.bottom, 6)
+                    .transition(.opacity.combined(with: .offset(y: -4)))
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// MARK: - Shared expanded detail
+// ═══════════════════════════════════════════════════════
+
+private struct LogExpandedDetail: View {
+    let workflow: LogWorkflow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Sources row
+            HStack(spacing: 5) {
                 Text("Sources")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.36))
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.32))
                 ForEach(workflow.sourceTools) { tool in
-                    LogToolIconButton(tool: tool)
+                    LogToolIconHoverable(tool: tool)
                 }
             }
 
-            // Divider
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(height: 0.5)
-
-            // Output rows
+            // Output items
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(workflow.outputs.enumerated()), id: \.element.id) { index, output in
-                    LogOutputTimelineRow(
-                        output: output,
-                        isLast: index == workflow.outputs.count - 1,
-                        appearDelay: Double(index) * 0.04
-                    )
+                ForEach(Array(workflow.outputs.enumerated()), id: \.element.id) { idx, output in
+                    LogOutputRow(output: output, isLast: idx == workflow.outputs.count - 1,
+                                 delay: Double(idx) * 0.04)
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.042)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.09), lineWidth: 0.5))
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(Color.white.opacity(0.038)))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(Color.white.opacity(0.08), lineWidth: 0.5))
     }
 }
 
-// MARK: - Flow type colour tokens
-
-private enum LogSourceColors {
-    static func background(for source: LogSource) -> Color {
-        switch source {
-        case .meetingLoop: return Color(red: 0.20, green: 0.88, blue: 0.60).opacity(0.14)
-        case .linkedIn:    return Color(red: 0.25, green: 0.52, blue: 0.96).opacity(0.16)
-        case .manual:      return Color.white.opacity(0.08)
-        }
-    }
-
-    static func text(for source: LogSource) -> Color {
-        switch source {
-        case .meetingLoop: return Color(red: 0.28, green: 0.90, blue: 0.64)
-        case .linkedIn:    return Color(red: 0.47, green: 0.72, blue: 1.00)
-        case .manual:      return Color.white.opacity(0.52)
-        }
-    }
-}
-
-// MARK: - Output timeline row
-
-private struct LogOutputTimelineRow: View {
+private struct LogOutputRow: View {
     let output: LogOutputItem
     let isLast: Bool
-    let appearDelay: Double
+    let delay: Double
 
     @State private var appeared = false
     @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            // Mini trunk
+        HStack(alignment: .top, spacing: 8) {
+            // Mini trunk dot
             VStack(spacing: 0) {
-                outputNode
+                Circle()
+                    .fill(output.approvalTooltip != nil
+                          ? Color.green.opacity(0.82)
+                          : Color.white.opacity(0.26))
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 3)
                 if !isLast {
                     Rectangle()
-                        .fill(Color.white.opacity(0.10))
-                        .frame(maxHeight: .infinity)
+                        .fill(Color.white.opacity(0.09))
                         .frame(width: 1)
+                        .frame(maxHeight: .infinity)
                         .padding(.top, 3)
                 }
             }
-            .frame(width: 14)
-            .padding(.top, 4)
+            .frame(width: 12)
 
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 2) {
-                    // Optional approval timestamp inline
-                    if let leadingTimeLabel = output.leadingTimeLabel {
-                        Text(leadingTimeLabel)
+                    if let time = output.leadingTimeLabel {
+                        Text(time)
                             .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.36))
+                            .foregroundColor(.white.opacity(0.35))
                     }
-
                     Text(output.title)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(isHovered ? 0.92 : 0.80))
+                        .foregroundColor(.white.opacity(isHovered ? 0.92 : 0.78))
                         .lineLimit(1)
                         .animation(.easeOut(duration: 0.10), value: isHovered)
 
-                    // Hover reveal: approval detail
-                    if isHovered, let approvalTooltip = output.approvalTooltip {
+                    if isHovered, let tooltip = output.approvalTooltip {
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9))
-                                .foregroundColor(.green.opacity(0.85))
-                            Text(approvalTooltip)
+                                .font(.system(size: 9)).foregroundColor(.green.opacity(0.80))
+                            Text(tooltip)
                                 .font(.system(size: 9.5, weight: .medium))
-                                .foregroundColor(.green.opacity(0.80))
+                                .foregroundColor(.green.opacity(0.75))
                         }
-                        .transition(.opacity.combined(with: .offset(y: 2)))
+                        .transition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let destination = output.destination, let statusLabel = output.statusLabel {
-                    LogDestinationButton(destination: destination, statusLabel: statusLabel)
+                if let dest = output.destination, let label = output.statusLabel {
+                    LogDestinationPill(destination: dest, label: label)
                         .padding(.leading, 8)
                 }
             }
@@ -720,44 +1052,58 @@ private struct LogOutputTimelineRow: View {
         }
         .onHover { isHovered = $0 }
         .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 4)
+        .offset(y: appeared ? 0 : 5)
         .onAppear {
-            withAnimation(.spring(response: 0.30, dampingFraction: 0.80).delay(appearDelay)) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.80).delay(delay)) {
                 appeared = true
             }
         }
         .onDisappear { appeared = false }
     }
+}
 
-    private var outputNode: some View {
-        ZStack {
-            if output.approvalTooltip != nil {
-                // Approved: solid green with checkmark
-                Circle()
-                    .fill(Color.green.opacity(0.82))
-                    .frame(width: 9, height: 9)
-            } else {
-                // Pending / auto: muted white
-                Circle()
-                    .fill(Color.white.opacity(0.28))
-                    .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 0.5))
-                    .frame(width: 9, height: 9)
+// ═══════════════════════════════════════════════════════
+// MARK: - Reusable atoms
+// ═══════════════════════════════════════════════════════
+
+private struct LogDestinationPill: View {
+    let destination: LogTool
+    let label: String
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {} label: {
+            HStack(spacing: 5) {
+                LogToolIcon(tool: destination, size: 12, bgSize: 18)
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
             }
+            .foregroundColor(.white.opacity(isHovered ? 0.86 : 0.60))
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(isHovered ? 0.10 : 0.056)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(isHovered ? 0.18 : 0.08), lineWidth: 0.5))
+            .scaleEffect(isHovered ? 1.025 : 1.0)
+            .animation(.spring(response: 0.20, dampingFraction: 0.70), value: isHovered)
         }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help(label)
+        .onHover { isHovered = $0 }
     }
 }
 
-// MARK: - Tool icon components
-
-private struct LogToolIconButton: View {
+private struct LogToolIconHoverable: View {
     let tool: LogTool
     @State private var isHovered = false
 
     var body: some View {
         Button {} label: {
-            LogToolIcon(tool: tool, size: 14, backgroundSize: 24)
-                .scaleEffect(isHovered ? 1.08 : 1.0)
-                .animation(.spring(response: 0.22, dampingFraction: 0.65), value: isHovered)
+            LogToolIcon(tool: tool, size: 13, bgSize: 22)
+                .scaleEffect(isHovered ? 1.10 : 1.0)
+                .animation(.spring(response: 0.20, dampingFraction: 0.64), value: isHovered)
         }
         .buttonStyle(.plain)
         .pointerCursor()
@@ -766,62 +1112,26 @@ private struct LogToolIconButton: View {
     }
 }
 
-private struct LogDestinationButton: View {
-    let destination: LogTool
-    let statusLabel: String
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {} label: {
-            HStack(spacing: 5) {
-                // Icon fills the background square for max clarity
-                LogToolIcon(tool: destination, size: 13, backgroundSize: 20)
-                Text(statusLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .foregroundColor(.white.opacity(isHovered ? 0.82 : 0.62))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(isHovered ? 0.10 : 0.058))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.white.opacity(isHovered ? 0.18 : 0.09), lineWidth: 0.5)
-            )
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .animation(.spring(response: 0.22, dampingFraction: 0.70), value: isHovered)
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(statusLabel)
-        .onHover { isHovered = $0 }
-    }
-}
-
 private struct LogToolIcon: View {
     let tool: LogTool
     let size: CGFloat
-    let backgroundSize: CGFloat
+    let bgSize: CGFloat
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-                .frame(width: backgroundSize, height: backgroundSize)
+                .fill(Color.white.opacity(0.07))
+                .frame(width: bgSize, height: bgSize)
 
-            if let iconURL = tool.iconURL {
-                AsyncSVGImage(urlString: iconURL, size: backgroundSize)
+            if let url = tool.iconURL {
+                AsyncSVGImage(urlString: url, size: bgSize)
+                    .frame(width: bgSize, height: bgSize)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            } else if let systemImage = tool.systemImage {
-                Image(systemName: systemImage)
+            } else if let sf = tool.systemImage {
+                Image(systemName: sf)
                     .font(.system(size: size, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.72))
+                    .foregroundColor(.white.opacity(0.70))
             }
         }
-        .frame(width: backgroundSize, height: backgroundSize)
     }
 }
