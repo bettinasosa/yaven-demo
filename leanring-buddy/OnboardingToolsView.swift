@@ -81,7 +81,7 @@ struct OnboardingToolsView: View {
                 Spacer()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0, pinnedViews: []) {
+                    LazyVStack(spacing: 7, pinnedViews: []) {
                         if !suggested.isEmpty {
                             sectionHeader("Suggested for you")
                             toolRows(suggested)
@@ -123,13 +123,11 @@ struct OnboardingToolsView: View {
         .task {
             let loaded = await ToolCatalog.load()
             allTools = loaded.isEmpty ? fallbackTools : loaded
-            isLoading = false
-            // Pre-warm the icon cache for all tools in parallel so icons are
-            // ready before the user scrolls rather than loading on demand.
-            let urls = allTools.map(\.logo)
+            // Fetch all icons in parallel before revealing the list so every
+            // cell renders with its icon already in cache — no visible lag.
             await withTaskGroup(of: Void.self) { group in
-                for urlString in urls {
-                    group.addTask(priority: .utility) {
+                for urlString in allTools.map(\.logo) {
+                    group.addTask(priority: .userInitiated) {
                         guard !urlString.isEmpty,
                               await SVGImageCache.shared.get(urlString) == nil,
                               let url = URL(string: urlString),
@@ -139,6 +137,7 @@ struct OnboardingToolsView: View {
                     }
                 }
             }
+            isLoading = false
         }
     }
 
@@ -204,15 +203,13 @@ struct OnboardingToolsView: View {
 
     @ViewBuilder
     private func toolRows(_ tools: [ComposioTool]) -> some View {
-        VStack(spacing: 7) {
-            ForEach(tools) { tool in
-                ToolCard(
-                    tool: tool,
-                    isConnected: onboardingManager.connectedDemoTools.contains(tool.key)
-                ) {
-                    withAnimation(OnboardingDS.Animation.standard) {
-                        onboardingManager.connectDemoTool(tool.key)
-                    }
+        ForEach(tools) { tool in
+            ToolCard(
+                tool: tool,
+                isConnected: onboardingManager.connectedDemoTools.contains(tool.key)
+            ) {
+                withAnimation(OnboardingDS.Animation.standard) {
+                    onboardingManager.connectDemoTool(tool.key)
                 }
             }
         }

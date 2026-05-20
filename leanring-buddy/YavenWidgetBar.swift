@@ -90,7 +90,7 @@ struct YavenWidgetBar: View {
                 onPreferredHeightChange(height(for: focus))
             }
             if focus != .chat { showingChatHistory = false }
-            if focus != .logCall && focus != .agents { automationDrillIn = nil }
+            if focus != .logCall { automationDrillIn = nil }
         }
         // When the shell requests focus (hotkey / notification tap), focus input without switching views.
         .onChange(of: focusCoordinator.focusRequestID) { _, _ in
@@ -134,7 +134,7 @@ struct YavenWidgetBar: View {
             HStack {
                 HStack(spacing: 24) {
                     iconNavButton(systemImage: "scroll", label: "Log", focus: .automations)
-                    iconNavButton(systemImage: "cloud.fill", label: "Agents", focus: .agents)
+                    iconNavButton(systemImage: "bolt.fill", label: "Flows", focus: .agents)
                 }
                 Spacer()
                 HStack(spacing: 24) {
@@ -318,7 +318,7 @@ struct YavenWidgetBar: View {
     private var expandedHeader: some View {
         HStack(spacing: 0) {
             Button {
-                if (widgetFocus == .logCall || widgetFocus == .agents), automationDrillIn != nil {
+                if widgetFocus == .logCall, automationDrillIn != nil {
                     withAnimation(Motion.focus) { automationDrillIn = nil }
                     onPreferredHeightChange(Self.automationsHeight)
                 } else {
@@ -366,6 +366,24 @@ struct YavenWidgetBar: View {
                         .pointerCursor()
                     }
                 }
+            } else if widgetFocus == .agents {
+                Button {
+                    // New flow — no-op in demo
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("New flow")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.white.opacity(0.50))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
         }
         .padding(.horizontal, 32)
@@ -379,7 +397,7 @@ struct YavenWidgetBar: View {
         case .notifications: return "Notifications"
         case .logCall:       return automationDrillIn?.displayName ?? "Automations"
         case .meeting:       return "Process Meeting"
-        case .agents:        return automationDrillIn?.displayName ?? "Agents"
+        case .agents:        return "Flows"
         case .approvals:     return "Desk"
         case .none:          return ""
         }
@@ -401,7 +419,7 @@ struct YavenWidgetBar: View {
                 onPreferredHeightChange(newHeight + 44) // +44 for the expanded header
             }
         case .agents:
-            agentsExpandedView
+            YavenFlowsView()
         case .approvals:
             YavenDeskView()
         case .none:
