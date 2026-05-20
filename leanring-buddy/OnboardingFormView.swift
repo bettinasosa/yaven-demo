@@ -29,22 +29,25 @@ struct AsyncSVGImage: View {
     let urlString: String
     let size: CGFloat
     @State private var image: NSImage?
+    @State private var isLoaded = false
 
     var body: some View {
-        Group {
+        ZStack {
+            Color.clear.frame(width: size, height: size)
             if let image {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size, height: size)
-            } else {
-                Color.clear.frame(width: size, height: size)
+                    .opacity(isLoaded ? 1 : 0)
             }
         }
+        .animation(.easeIn(duration: 0.15), value: isLoaded)
         .task(id: urlString) {
             guard !urlString.isEmpty else { return }
             if let cached = await SVGImageCache.shared.get(urlString) {
                 image = cached
+                isLoaded = true
                 return
             }
             guard let url = URL(string: urlString),
@@ -52,6 +55,7 @@ struct AsyncSVGImage: View {
                   let img = NSImage(data: data) else { return }
             await SVGImageCache.shared.set(urlString, image: img)
             image = img
+            isLoaded = true
         }
     }
 }

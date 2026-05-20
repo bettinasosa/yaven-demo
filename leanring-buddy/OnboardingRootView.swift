@@ -32,6 +32,12 @@ struct OnboardingRootView: View {
                 switch onboardingManager.stage {
                 case .googleSignIn:
                     OnboardingSignInView(onboardingManager: onboardingManager)
+                case .name:
+                    OnboardingNameView(onboardingManager: onboardingManager)
+                case .role:
+                    OnboardingRoleView(onboardingManager: onboardingManager)
+                case .tools:
+                    OnboardingToolsView(onboardingManager: onboardingManager)
                 case .form:
                     OnboardingFormView(
                         onboardingManager: onboardingManager,
@@ -41,6 +47,8 @@ struct OnboardingRootView: View {
                     OnboardingConnectionsView(onboardingManager: onboardingManager)
                 case .connectors:
                     OnboardingConnectorsView(onboardingManager: onboardingManager)
+                case .welcome:
+                    OnboardingWelcomeView(onboardingManager: onboardingManager)
                 case .arrivalTransition:
                     OnboardingArrivalTransitionView(coordinator: arrivalCoordinator)
                 case .launchAnimation:

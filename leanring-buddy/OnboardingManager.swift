@@ -21,9 +21,13 @@ final class OnboardingManager: ObservableObject {
 
     enum Stage: Equatable, Hashable {
         case googleSignIn
-        case form
-        case connections   // tool OAuth (Gmail essential, others optional)
-        case connectors    // appearance picker
+        case name          // "What should Yaven call you?"
+        case role          // "Tell Yaven what you do / where you work"
+        case tools         // connect tools (fake for demo)
+        case form          // preserved — not reached in current flow
+        case connections   // preserved — not reached in current flow
+        case connectors    // dock style picker
+        case welcome       // first-run welcome message
         case arrivalTransition
         case launchAnimation
         case complete
@@ -50,6 +54,14 @@ final class OnboardingManager: ObservableObject {
     /// Called when a Composio OAuth connection completes or times out.
     var didFinishConnect: (() -> Void)?
 
+
+    // Name / Role steps
+    @Published private(set) var userName: String = ""
+    @Published private(set) var userRole: String = ""
+    @Published private(set) var userCompany: String = ""
+
+    // Fake tool connections for demo
+    @Published var connectedDemoTools: Set<String> = []
 
     // Stage 3
     @Published private(set) var connectors: [OnboardingConnectorState] = []
@@ -116,7 +128,12 @@ final class OnboardingManager: ObservableObject {
         return true
     }
 
-    // MARK: - Stage 1: Google Sign In
+    // MARK: - Stage 1: Google Sign In (fake for demo)
+
+    func fakeSignIn() {
+        googleProfile = GoogleProfile(name: "Demo User", email: "demo@yaven.app")
+        stage = .name
+    }
 
     func startGoogleSignIn() {
         guard !isSigningInWithGoogle else { return }
@@ -143,7 +160,29 @@ final class OnboardingManager: ObservableObject {
         }
     }
 
-    // MARK: - Stage 2: Form
+    // MARK: - Stages 2–4: Name → Role → Tools
+
+    func submitName(_ name: String) {
+        userName = name
+        YavenUserContext.shared.saveFirstName(name)
+        stage = .role
+    }
+
+    func submitRole(role: String, company: String) {
+        userRole = role
+        userCompany = company
+        stage = .tools
+    }
+
+    func connectDemoTool(_ toolId: String) {
+        connectedDemoTools.insert(toolId)
+    }
+
+    func proceedFromTools() {
+        stage = .connectors
+    }
+
+    // MARK: - Stage 2: Form (preserved)
 
     /// Called by OnboardingFormView when the user completes all steps.
     func submitFormProfile(_ profile: UserProfile) {
@@ -156,6 +195,10 @@ final class OnboardingManager: ObservableObject {
 
     func proceedFromConnections() {
         stage = .connectors
+    }
+
+    func proceedFromWelcome() {
+        markOnboardingComplete()
     }
 
     // MARK: - Worker URL
@@ -191,12 +234,12 @@ final class OnboardingManager: ObservableObject {
             where connectors[index].status == .notConnected || connectors[index].status == .unsupported {
             connectors[index].status = .skipped
         }
-        beginArrivalTransition()
+        stage = .welcome
     }
 
     func proceedFromConnectors(clickOrigin: CGPoint = .zero) {
-        arrivalClickOrigin = clickOrigin
-        beginArrivalTransition()
+        UserDefaults.standard.set(selectedAppearance.rawValue, forKey: OnboardingAppearance.defaultsKey)
+        stage = .welcome
     }
 
     private func beginArrivalTransition() {
@@ -328,6 +371,10 @@ final class OnboardingManager: ObservableObject {
         selectedAppearance = .cloud
         isSigningInWithGoogle = false
         googleSignInErrorMessage = nil
+        userName = ""
+        userRole = ""
+        userCompany = ""
+        connectedDemoTools = []
         stage = .googleSignIn
     }
     #endif

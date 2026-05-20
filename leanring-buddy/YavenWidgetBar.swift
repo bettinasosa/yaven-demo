@@ -59,7 +59,7 @@ struct YavenWidgetBar: View {
 
     private static let compactHeight: CGFloat        = 380
     private static let chatHeight: CGFloat           = 420
-    private static let automationsHeight: CGFloat    = 380
+    private static let automationsHeight: CGFloat    = 420
     private static let notificationsHeight: CGFloat  = 220
     private static let logCallHeight: CGFloat        = 380
     private static let meetingHeight: CGFloat        = 460
@@ -122,7 +122,7 @@ struct YavenWidgetBar: View {
         case .logCall:       return Self.logCallHeight
         case .meeting:       return Self.meetingHeight
         case .agents:        return Self.automationsHeight
-        case .approvals:     return Self.notificationsHeight
+        case .approvals:     return Self.automationsHeight
         }
     }
 
@@ -133,15 +133,15 @@ struct YavenWidgetBar: View {
             // Icon nav bar
             HStack {
                 HStack(spacing: 24) {
-                    iconNavButton(systemImage: "bolt.fill", label: "Activity", focus: .automations)
+                    iconNavButton(systemImage: "scroll", label: "Log", focus: .automations)
                     iconNavButton(systemImage: "cloud.fill", label: "Agents", focus: .agents)
                 }
                 Spacer()
                 HStack(spacing: 24) {
                     iconNavButton(systemImage: "bubble.left.fill", label: "Chat", focus: .chat)
                     iconNavButton(
-                        systemImage: "checkmark.circle.fill",
-                        label: "Approvals",
+                        systemImage: "tray.fill",
+                        label: "Desk",
                         focus: .approvals,
                         badgeCount: agentController.needsApprovalThreads.count
                     )
@@ -375,12 +375,12 @@ struct YavenWidgetBar: View {
     private var expandedTitle: String {
         switch widgetFocus {
         case .chat:          return "Chat"
-        case .automations:   return "Activity"
+        case .automations:   return "Log"
         case .notifications: return "Notifications"
         case .logCall:       return automationDrillIn?.displayName ?? "Automations"
         case .meeting:       return "Process Meeting"
         case .agents:        return automationDrillIn?.displayName ?? "Agents"
-        case .approvals:     return "Approvals"
+        case .approvals:     return "Desk"
         case .none:          return ""
         }
     }
@@ -391,7 +391,7 @@ struct YavenWidgetBar: View {
         case .chat:
             chatExpandedView
         case .automations:
-            automationsExpandedView
+            YavenLogView()
         case .notifications:
             notificationsExpandedView
         case .logCall:
@@ -403,7 +403,7 @@ struct YavenWidgetBar: View {
         case .agents:
             agentsExpandedView
         case .approvals:
-            approvalsExpandedView
+            YavenDeskView()
         case .none:
             EmptyView()
         }

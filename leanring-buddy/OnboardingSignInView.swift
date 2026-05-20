@@ -2,7 +2,7 @@
 //  OnboardingSignInView.swift
 //  leanring-buddy
 //
-//  Stage 1 of onboarding — Google Sign In.
+//  Stage 1 of onboarding — Google Sign In (faked for demo).
 //
 
 import SwiftUI
@@ -18,33 +18,59 @@ struct OnboardingSignInView: View {
     @State private var isButtonHovered = false
     @State private var isButtonPressed = false
 
+    // Fake connection states
+    @State private var connectState: ConnectState = .idle
+
+    enum ConnectState { case idle, connecting, connected }
+
     var body: some View {
-        if onboardingManager.isSigningInWithGoogle {
-            signingInBanner
-        } else {
+        switch connectState {
+        case .connecting:
+            connectingView
+        case .connected:
+            connectedView
+        case .idle:
             fullSignInView
                 .onAppear { animateIn() }
         }
     }
 
-    // Compact strip shown while the OAuth sheet is open.
-    private var signingInBanner: some View {
-        HStack(spacing: 7) {
+    private var connectingView: some View {
+        VStack(spacing: 14) {
             ProgressView()
-                .controlSize(.mini)
+                .controlSize(.regular)
                 .tint(OnboardingDS.Colors.cloudCream)
-            Text("Signing in…")
-                .font(OnboardingDS.Fonts.body(size: 12))
-                .foregroundStyle(OnboardingDS.Colors.cloudCream.opacity(0.85))
+                .scaleEffect(1.2)
+            Text("Signing in to Google…")
+                .font(OnboardingDS.Fonts.body(size: 14))
+                .foregroundStyle(OnboardingDS.Colors.cloudCream.opacity(0.75))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
+    }
+
+    private var connectedView: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.15))
+                    .frame(width: 54, height: 54)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.green.opacity(0.85))
+            }
+            Text("Connected")
+                .font(OnboardingDS.Fonts.body(size: 14))
+                .foregroundStyle(OnboardingDS.Colors.cloudCream.opacity(0.75))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.scale(scale: 0.85).combined(with: .opacity))
     }
 
     private var fullSignInView: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            // Wordmark
             VStack(spacing: 14) {
                 Text("yaven")
                     .font(OnboardingDS.Fonts.display(size: 52))
@@ -60,8 +86,7 @@ struct OnboardingSignInView: View {
 
             Spacer().frame(height: 52)
 
-            // Sign-in button with warm hover glow
-            Button(action: { onboardingManager.startGoogleSignIn() }) {
+            Button(action: startFakeSignIn) {
                 HStack(spacing: 10) {
                     Image(systemName: "globe")
                         .font(.system(size: 15, weight: .medium))
@@ -76,13 +101,9 @@ struct OnboardingSignInView: View {
                 .background(
                     ZStack {
                         OnboardingDS.Colors.skyBlue
-                        // Warm gold shimmer on hover
                         if isButtonHovered {
                             LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.15),
-                                    Color.clear
-                                ],
+                                colors: [Color.white.opacity(0.15), Color.clear],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
@@ -97,7 +118,6 @@ struct OnboardingSignInView: View {
                             lineWidth: 0.5
                         )
                 )
-                // Warm glow behind button on hover
                 .shadow(
                     color: OnboardingDS.Colors.morningGold.opacity(isButtonHovered ? 0.45 : 0),
                     radius: 16, x: 0, y: 4
@@ -117,19 +137,8 @@ struct OnboardingSignInView: View {
             .opacity(buttonOpacity)
             .offset(y: buttonOffset)
 
-            // Error
-            if let errorMessage = onboardingManager.googleSignInErrorMessage {
-                Text(errorMessage)
-                    .font(OnboardingDS.Fonts.caption())
-                    .foregroundStyle(OnboardingDS.Colors.error)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 48)
-                    .padding(.top, 14)
-            }
-
             Spacer()
 
-            // Privacy notice
             Text(OnboardingManager.privacyNotice)
                 .font(OnboardingDS.Fonts.caption())
                 .foregroundStyle(OnboardingDS.Colors.steelHaze.opacity(0.65))
@@ -149,7 +158,18 @@ struct OnboardingSignInView: View {
         .padding(.horizontal, OnboardingDS.Layout.cardPadding)
     }
 
-    // Staggered entrance: wordmark → tagline → button
+    private func startFakeSignIn() {
+        withAnimation(OnboardingDS.Animation.standard) { connectState = .connecting }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                connectState = .connected
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                onboardingManager.fakeSignIn()
+            }
+        }
+    }
+
     private func animateIn() {
         withAnimation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.1)) {
             wordmarkOpacity = 1

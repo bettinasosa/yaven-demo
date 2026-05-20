@@ -44,11 +44,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         OnboardingDS.Fonts.register()
 
         #if DEBUG
-        if CommandLine.arguments.contains("-ResetOnboarding") {
-            UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
-            UserDefaults(suiteName: "com.humansongs.clicky")?.set(false, forKey: "hasCompletedOnboarding")
-            print("Yaven DEBUG: Onboarding state reset via launch argument.")
-        }
+        Self.resetStateForDebug()
         #endif
 
         ClickyAnalytics.configure()
@@ -100,6 +96,27 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     #if DEBUG
+    /// Wipes all persisted state so every debug rebuild starts from a clean slate.
+    private static func resetStateForDebug() {
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "hasCompletedOnboarding")
+        defaults.set(false, forKey: "pendingFirstRunArrival")
+        UserDefaults(suiteName: "com.humansongs.clicky")?.set(false, forKey: "hasCompletedOnboarding")
+
+        for key in ["yavenUserRole", "yavenUserToolKeys", "yavenEntityId",
+                    "yavenUserFirstName", "selectedYavenAppearance", "connectedToolKeys"] {
+            defaults.removeObject(forKey: key)
+        }
+
+        // Wipe the SQLite thread store so the panel has no history.
+        if let dbURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?.appendingPathComponent("Yaven/yaven.sqlite") {
+            try? FileManager.default.removeItem(at: dbURL)
+        }
+
+        print("Yaven DEBUG: State reset — fresh onboarding on this launch.")
+    }
+
     private func runMemoryLayerSmokeTest() {
         // Step 1: bootstrap a profile from fake onboarding data (no Claude call).
         let fakeProfile = UserProfile(

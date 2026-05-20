@@ -2,13 +2,17 @@
 //  OnboardingConnectorsView.swift
 //  leanring-buddy
 //
-//  Stage 3 of onboarding — choose Yaven's on-screen form.
+//  Step 5 of onboarding — choose Yaven's dock style.
+//  Both options are selectable; the demo always uses Black under the hood.
 //
 
 import SwiftUI
 
 struct OnboardingConnectorsView: View {
     @ObservedObject var onboardingManager: OnboardingManager
+    @State private var selectedStyle: DockStyle = .black
+
+    enum DockStyle { case black, glass }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,34 +22,22 @@ struct OnboardingConnectorsView: View {
 
             Spacer(minLength: 18)
 
-            YavenOnboardingMascotView(
-                appearance: onboardingManager.selectedAppearance,
-                size: 148
-            )
-            .animation(OnboardingDS.Animation.standard, value: onboardingManager.selectedAppearance)
-
-            Text("Pick how Yaven should live on your screen.")
-                .font(OnboardingDS.Fonts.body(size: 15))
-                .foregroundStyle(OnboardingDS.Colors.steelHaze)
-                .padding(.top, 12)
-
-            appearanceGrid
+            styleGrid
                 .padding(.horizontal, 32)
-                .padding(.top, 24)
 
             Spacer(minLength: 18)
 
             Button {
-                onboardingManager.proceedFromConnectors(clickOrigin: NSEvent.mouseLocation)
+                onboardingManager.proceedFromConnectors()
             } label: {
-                Text("Bring Yaven to life")
+                Text("Continue")
                     .font(OnboardingDS.Fonts.body(size: 14))
                     .fontWeight(.semibold)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 13)
-                    .background(OnboardingDS.Colors.cloudCream)
-                    .clipShape(Capsule())
+                    .background(OnboardingDS.Colors.skyBlue)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -56,58 +48,109 @@ struct OnboardingConnectorsView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Choose your Yaven")
+            Text("Choose your style")
                 .font(OnboardingDS.Fonts.heading(size: 33))
                 .foregroundStyle(OnboardingDS.Colors.cloudCream)
 
-            Text("You can change this later. For now, choose the vibe.")
+            Text("How should Yaven sit on your screen?")
                 .font(OnboardingDS.Fonts.body(size: 14))
                 .foregroundStyle(OnboardingDS.Colors.steelHaze)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var appearanceGrid: some View {
-        HStack(spacing: 10) {
-            ForEach(OnboardingAppearance.allCases) { appearance in
-                AppearanceCard(
-                    appearance: appearance,
-                    isSelected: onboardingManager.selectedAppearance == appearance
-                ) {
-                    onboardingManager.selectAppearance(appearance)
-                }
-            }
+    private var styleGrid: some View {
+        HStack(spacing: 12) {
+            StyleCard(
+                label: "Black",
+                description: "Clean, dark, minimal.",
+                isSelected: selectedStyle == .black,
+                preview: blackPreview
+            ) { selectedStyle = .black }
+
+            StyleCard(
+                label: "Glass",
+                description: "Translucent, light, airy.",
+                isSelected: selectedStyle == .glass,
+                preview: glassPreview
+            ) { selectedStyle = .glass }
         }
+    }
+
+    private var blackPreview: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color.black)
+            .frame(height: 36)
+            .overlay(
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.white.opacity(0.6))
+                        .frame(width: 8, height: 8)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.35))
+                        .frame(width: 28, height: 5)
+                }
+            )
+            .padding(.horizontal, 10)
+    }
+
+    private var glassPreview: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .frame(height: 36)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5)
+            )
+            .overlay(
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.white.opacity(0.5))
+                        .frame(width: 8, height: 8)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.3))
+                        .frame(width: 28, height: 5)
+                }
+            )
+            .padding(.horizontal, 10)
     }
 }
 
-private struct AppearanceCard: View {
-    let appearance: OnboardingAppearance
+// MARK: - Style Card
+
+private struct StyleCard<Preview: View>: View {
+    let label: String
+    let description: String
     let isSelected: Bool
+    let preview: Preview
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(spacing: 10) {
-                YavenOnboardingMascotView(appearance: appearance, size: 56)
+            VStack(spacing: 12) {
+                preview
 
-                VStack(spacing: 3) {
-                    Text(appearance.displayName)
+                VStack(spacing: 4) {
+                    Text(label)
                         .font(OnboardingDS.Fonts.body(size: 13))
                         .fontWeight(.semibold)
-                        .foregroundStyle(OnboardingDS.Colors.cloudCream)
+                        .foregroundStyle(Color.black.opacity(0.82))
 
-                    Text(appearance.tagline)
+                    Text(description)
                         .font(OnboardingDS.Fonts.caption(size: 10))
-                        .foregroundStyle(OnboardingDS.Colors.steelHaze)
+                        .foregroundStyle(Color.black.opacity(0.45))
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 130)
-            .background(cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .frame(height: 120)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.55) : Color.white.opacity(0.28))
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
@@ -117,24 +160,9 @@ private struct AppearanceCard: View {
                         lineWidth: isSelected ? 1.2 : 0.7
                     )
             )
-            .shadow(
-                color: isSelected
-                    ? OnboardingDS.Colors.blushPink.opacity(0.18)
-                    : Color.clear,
-                radius: 18,
-                y: 8
-            )
+            .animation(OnboardingDS.Animation.standard, value: isSelected)
         }
         .buttonStyle(.plain)
         .pointerCursor()
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(
-                isSelected
-                    ? Color.white.opacity(0.62)
-                    : Color.white.opacity(0.34)
-            )
     }
 }

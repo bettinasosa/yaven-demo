@@ -142,9 +142,18 @@ struct YavenPanelView: View {
         .allowsHitTesting(false)
     }
 
+    private var panelTitleText: String {
+        guard activeTab == .chat else { return activeTab.panelTitle }
+        let firstName = YavenUserContext.shared.firstName
+        guard !firstName.isEmpty else { return activeTab.panelTitle }
+        let hour = Calendar.current.component(.hour, from: Date())
+        let greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+        return "\(greeting), \(firstName)."
+    }
+
     private var questionTitle: some View {
         HStack {
-            Text(activeTab.panelTitle)
+            Text(panelTitleText)
                 .font(.custom("Fraunces-SemiBold", size: 21, relativeTo: .title3))
                 .foregroundColor(.primary)
 

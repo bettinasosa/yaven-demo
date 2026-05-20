@@ -120,25 +120,11 @@ final class OnboardingWindowController {
     }
 
     private func dismiss() {
-        let screen = window.screen ?? NSScreen.main
-        // Use the full screen frame (not visibleFrame) so the target reaches
-        // the very top of the display — the camera/notch area.
-        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-
-        // Small pill that flies up to the top-centre of the screen.
-        let targetSize = NSSize(width: 160, height: 32)
-        let targetOrigin = NSPoint(
-            x: screenFrame.midX - targetSize.width / 2,
-            y: screenFrame.maxY
-        )
-        let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
-
         let capturedWindow = window
         let capturedOnComplete = onComplete
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.42
+            context.duration = 0.35
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            capturedWindow.animator().setFrame(targetFrame, display: true)
             capturedWindow.animator().alphaValue = 0
         } completionHandler: {
             capturedWindow.orderOut(nil)

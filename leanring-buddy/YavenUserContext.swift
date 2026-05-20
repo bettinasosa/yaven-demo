@@ -33,6 +33,11 @@ final class YavenUserContext {
         UserDefaults.standard.set(firstName, forKey: Self.firstNameKey)
     }
 
+    func saveFirstName(_ name: String) {
+        let firstName = name.components(separatedBy: " ").first ?? name
+        UserDefaults.standard.set(firstName, forKey: Self.firstNameKey)
+    }
+
     func saveEntityId(_ email: String) {
         UserDefaults.standard.set(email, forKey: Self.entityIdKey)
     }
