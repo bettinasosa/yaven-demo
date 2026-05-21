@@ -90,7 +90,6 @@ struct YavenOrbView: View {
             fanButton(
                 icon: "exclamationmark.circle.fill",
                 label: "What needs attention?",
-                tint: Color(red: 0.98, green: 0.82, blue: 0.44),
                 action: onNeedsAttention
             )
             .position(
@@ -101,7 +100,6 @@ struct YavenOrbView: View {
             fanButton(
                 icon: "bookmark.fill",
                 label: "Remember this",
-                tint: Color(red: 0.98, green: 0.66, blue: 0.44),
                 action: onRememberThis
             )
             .position(
@@ -112,7 +110,6 @@ struct YavenOrbView: View {
             fanButton(
                 icon: "arrowshape.turn.up.left.fill",
                 label: "Help me reply",
-                tint: Color(red: 0.80, green: 0.68, blue: 0.98),
                 action: onHelpReply
             )
             .position(
@@ -134,36 +131,14 @@ struct YavenOrbView: View {
     private func fanButton(
         icon: String,
         label: String,
-        tint: Color,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 32, height: 32)
-                .background { fanButtonBackground(tint: tint) }
-                .overlay(Circle().stroke(tint.opacity(0.32), lineWidth: 0.8))
-        }
-        .buttonStyle(.plain)
-        .help(label)
-        .shadow(color: tint.opacity(0.30), radius: 6, y: 2)
-    }
-
-    @ViewBuilder
-    private func fanButtonBackground(tint: Color) -> some View {
-        if selectedAppearance.isGlassMode, #available(macOS 26.0, *) {
-            Color.white.opacity(0.001)
-                .glassEffect(
-                    .clear
-                        .interactive(true)
-                        .tint(tint.opacity(0.08)),
-                    in: Circle()
-                )
-        } else {
-            Circle()
-                .fill(.ultraThinMaterial)
-        }
+        QuickActionFanButton(
+            icon: icon,
+            label: label,
+            isGlassMode: selectedAppearance.isGlassMode,
+            action: action
+        )
     }
 
     // MARK: - Orb body
@@ -297,5 +272,62 @@ struct YavenOrbView: View {
                 .clipShape(Circle())
                 .overlay(Circle().fill(Color.white.opacity(0.08)))
         }
+    }
+}
+
+private struct QuickActionFanButton: View {
+    let icon: String
+    let label: String
+    let isGlassMode: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(isHovering ? 0.92 : 0.76))
+                .frame(width: 32, height: 32)
+                .background { buttonBackground }
+                .overlay(Circle().stroke(Color.white.opacity(isHovering ? 0.30 : 0.18), lineWidth: 0.8))
+        }
+        .buttonStyle(QuickActionFanButtonStyle())
+        .scaleEffect(isHovering ? 1.08 : 1)
+        .shadow(color: Color.black.opacity(isHovering ? 0.30 : 0.22), radius: isHovering ? 9 : 6, y: isHovering ? 3 : 2)
+        .help(label)
+        .pointerCursor()
+        .accessibilityLabel(label)
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.70)) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var buttonBackground: some View {
+        if isGlassMode, #available(macOS 26.0, *) {
+            Color.white.opacity(0.001)
+                .glassEffect(
+                    .clear
+                        .interactive(true)
+                        .tint(Color.white.opacity(isHovering ? 0.14 : 0.07)),
+                    in: Circle()
+                )
+        } else {
+            Circle()
+                .fill(.ultraThinMaterial)
+                .overlay(Circle().fill(Color.white.opacity(isHovering ? 0.12 : 0.06)))
+        }
+    }
+}
+
+private struct QuickActionFanButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.90 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.spring(response: 0.18, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }

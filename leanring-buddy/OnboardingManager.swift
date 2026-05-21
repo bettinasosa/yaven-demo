@@ -195,8 +195,9 @@ final class OnboardingManager: ObservableObject {
         stage = .connectors
     }
 
-    func proceedFromWelcome() {
-        markOnboardingComplete()
+    func proceedFromWelcome(clickOrigin: CGPoint = .zero) {
+        arrivalClickOrigin = clickOrigin
+        beginArrivalTransition()
     }
 
     // MARK: - Worker URL
@@ -246,7 +247,7 @@ final class OnboardingManager: ObservableObject {
         stage = .arrivalTransition
 
         Task {
-            try? await Task.sleep(nanoseconds: 900_000_000)
+            try? await Task.sleep(nanoseconds: 650_000_000)
             guard stage == .arrivalTransition else { return }
             markOnboardingComplete()
         }

@@ -286,19 +286,19 @@ private let fakeLogSections: [LogSection] = {
 
 // MARK: - Layout options
 
-private enum LogLayout: String, CaseIterable, Identifiable {
+private enum LogLayout: String, CaseIterable, Identifiable, Hashable {
     case timeline = "A"
     case table    = "B"
-    case cards    = "C"
-    case feed     = "D"
+    case segment  = "C"
+    case pulse    = "D"
 
     var id: String { rawValue }
     var description: String {
         switch self {
         case .timeline: return "Timeline"
         case .table:    return "Table"
-        case .cards:    return "Cards"
-        case .feed:     return "Feed"
+        case .segment:  return "Segment"
+        case .pulse:    return "Pulse"
         }
     }
 }
@@ -323,6 +323,29 @@ private enum LogSourceStyle {
     }
 }
 
+// MARK: - Day filter
+
+private enum LogDayFilter: Hashable {
+    case all
+    case today
+    case thisWeek
+    case thisMonth
+    case specificDay(String)   // matches a LogSection dayLabel exactly
+}
+
+private enum LogDayFilterStyle: Int, CaseIterable { case pills, strip, stepper }
+
+private enum TimelineStyle: Int, CaseIterable {
+    case trunk, journal, dots
+    var label: String {
+        switch self {
+        case .trunk:   return "Trunk"
+        case .journal: return "Journal"
+        case .dots:    return "Dots"
+        }
+    }
+}
+
 // MARK: - Root view
 
 struct YavenLogView: View {
@@ -331,6 +354,10 @@ struct YavenLogView: View {
     @State private var searchText = ""
     @State private var layout: LogLayout = .timeline
     @State private var expandedIDs: Set<String> = Set(fakeWorkflows.prefix(1).map(\.id))
+    @State private var logDayFilter: LogDayFilter = .all
+    @State private var logDayFilterStyle: LogDayFilterStyle = .pills
+    @State private var timelineStyle: TimelineStyle = .trunk
+    @State private var listAppeared = false
 
     init(onOpenFlow: @escaping (String) -> Void = { _ in }) {
         self.onOpenFlow = onOpenFlow
@@ -338,10 +365,11 @@ struct YavenLogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search + layout picker
+            // Search + layout picker + day filter
             VStack(spacing: 8) {
                 searchBar
                 layoutPicker
+                dayFilterRow
             }
             .padding(.horizontal, 28)
             .padding(.top, 10)
@@ -354,9 +382,29 @@ struct YavenLogView: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 12)
                     .padding(.bottom, 28)
+                    .opacity(listAppeared ? 1 : 0)
+                    .offset(y: listAppeared ? 0 : 7)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.84), value: listAppeared)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: layout) { _, _ in
+            listAppeared = false
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84).delay(0.06)) {
+                listAppeared = true
+            }
+        }
+        .onChange(of: logDayFilter) { _, _ in
+            listAppeared = false
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84).delay(0.04)) {
+                listAppeared = true
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.84).delay(0.10)) {
+                listAppeared = true
+            }
+        }
     }
 
     // MARK: Search bar
@@ -433,7 +481,22 @@ struct YavenLogView: View {
         }
     }
 
-    private var totalCount: Int { fakeWorkflows.count }
+    private var totalCount: Int { filteredWorkflows.count }
+
+    private var filteredSections: [LogSection] {
+        switch logDayFilter {
+        case .all, .thisWeek, .thisMonth:
+            return fakeLogSections
+        case .today:
+            return fakeLogSections.filter { $0.dayLabel == "Today" }
+        case .specificDay(let label):
+            return fakeLogSections.filter { $0.dayLabel == label }
+        }
+    }
+
+    private var filteredWorkflows: [LogWorkflow] {
+        filteredSections.flatMap(\.workflows)
+    }
 
     // MARK: Layout dispatcher
 
@@ -442,23 +505,56 @@ struct YavenLogView: View {
         switch layout {
         case .timeline: layoutA
         case .table:    layoutB
-        case .cards:    layoutC
-        case .feed:     layoutD
+        case .segment:  layoutC
+        case .pulse:    layoutD
         }
     }
 
     // ──────────────────────────────────────────────
-    // LAYOUT A — Timeline trunk
-    // Dates: inline day-separator rules between groups
-    // Micro: rotating chevron, icon scale on hover,
-    //        output items stagger-fade in on expand
+    // LAYOUT A — Timeline (3 sub-styles)
+    // Sub-picker at top. Each style has a different
+    // visual density and interaction model.
     // ──────────────────────────────────────────────
 
     private var layoutA: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(fakeLogSections.enumerated()), id: \.element.id) { si, section in
+            // Timeline style sub-picker
+            HStack(spacing: 4) {
+                ForEach(TimelineStyle.allCases, id: \.rawValue) { style in
+                    let isSelected = timelineStyle == style
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) { timelineStyle = style }
+                    } label: {
+                        Text(style.label)
+                            .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                            .foregroundColor(isSelected ? .white.opacity(0.88) : .white.opacity(0.28))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule()
+                                .fill(isSelected ? Color.white.opacity(0.12) : Color.clear))
+                            .overlay(Capsule()
+                                .stroke(isSelected ? Color.white.opacity(0.18) : Color.clear,
+                                        lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .animation(.easeOut(duration: 0.18), value: isSelected)
+                }
+            }
+            .padding(.bottom, 10)
+
+            switch timelineStyle {
+            case .trunk:   layoutA_trunk
+            case .journal: layoutA_journal
+            case .dots:    layoutA_dots
+            }
+        }
+    }
+
+    // Sub-style A1 — original trunk
+    @ViewBuilder private var layoutA_trunk: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(filteredSections.enumerated()), id: \.element.id) { si, section in
                 if si > 0 {
-                    // Day-change separator — part of the trunk
                     HStack(spacing: 0) {
                         Rectangle().fill(Color.white.opacity(0.10))
                             .frame(width: 1.5, height: 16)
@@ -480,9 +576,8 @@ struct YavenLogView: View {
                         .padding(.leading, 22 + 10)
                         .padding(.bottom, 6)
                 }
-
                 ForEach(Array(section.workflows.enumerated()), id: \.element.id) { wi, wf in
-                    let isLast = si == fakeLogSections.count - 1 && wi == section.workflows.count - 1
+                    let isLast = si == filteredSections.count - 1 && wi == section.workflows.count - 1
                     LogRowA(
                         workflow: wf, isLast: isLast,
                         isExpanded: expandedIDs.contains(wf.id),
@@ -490,6 +585,63 @@ struct YavenLogView: View {
                         onToggle: { toggleExpand(wf.id) }
                     )
                     .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                }
+            }
+        }
+    }
+
+    // Sub-style A2 — editorial journal: large day headers, titled entries
+    @ViewBuilder private var layoutA_journal: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(filteredSections.enumerated()), id: \.element.id) { si, section in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(section.dayLabel)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white.opacity(0.80))
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
+                }
+                .padding(.top, si == 0 ? 0 : 22)
+                .padding(.bottom, 8)
+
+                VStack(spacing: 2) {
+                    ForEach(section.workflows) { wf in
+                        LogRowA_Journal(
+                            workflow: wf,
+                            isExpanded: expandedIDs.contains(wf.id),
+                            matchesSearch: wf.matchesSearch(searchText),
+                            onToggle: { toggleExpand(wf.id) }
+                        )
+                        .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                    }
+                }
+            }
+        }
+    }
+
+    // Sub-style A3 — compact dots: ultra-dense, great for months of history
+    @ViewBuilder private var layoutA_dots: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(filteredSections.enumerated()), id: \.element.id) { si, section in
+                HStack(spacing: 6) {
+                    if si > 0 { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 0.5) }
+                    Text(section.dayLabel.uppercased())
+                        .font(.system(size: 8, weight: .bold)).tracking(1.0)
+                        .foregroundColor(.white.opacity(0.22)).fixedSize()
+                    Rectangle().fill(Color.white.opacity(0.07)).frame(height: 0.5)
+                }
+                .padding(.top, si == 0 ? 0 : 10)
+                .padding(.bottom, 4)
+
+                VStack(spacing: 0) {
+                    ForEach(section.workflows) { wf in
+                        LogRowA_Dots(
+                            workflow: wf,
+                            isExpanded: expandedIDs.contains(wf.id),
+                            matchesSearch: wf.matchesSearch(searchText),
+                            onToggle: { toggleExpand(wf.id) }
+                        )
+                        .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                    }
                 }
             }
         }
@@ -505,17 +657,18 @@ struct YavenLogView: View {
 
     private var layoutB: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(fakeLogSections) { section in
+            ForEach(filteredSections) { section in
                 // Date header row
                 HStack(spacing: 0) {
-                    Text(section.dayLabel)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.28))
+                    Text(section.dayLabel.uppercased())
+                        .font(.system(size: 9.5, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.white.opacity(0.42))
                         .frame(width: 72, alignment: .leading)
-                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
+                    Rectangle().fill(Color.white.opacity(0.10)).frame(height: 0.5)
                 }
                 .padding(.bottom, 4)
-                .padding(.top, 10)
+                .padding(.top, 12)
 
                 ForEach(section.workflows) { wf in
                     LogRowB(
@@ -531,59 +684,31 @@ struct YavenLogView: View {
     }
 
     // ──────────────────────────────────────────────
-    // LAYOUT C — Rich cards, no trunk
-    // Dates: floating chip in card top-right corner
-    // Times: large, inside the card header
-    // Micro: card lifts on hover (shadow + slight y),
-    //        source icons visible collapsed,
-    //        expand slides content from within card
+    // LAYOUT C — Floating segments
+    // Dates: section header rule (same as B)
+    // Micro: double-bezel stroke, source strip height-
+    //        spring on hover, icon scale, accent glow
+    //        shadow, row lifts -1.5px on hover
     // ──────────────────────────────────────────────
 
     private var layoutC: some View {
-        VStack(spacing: 8) {
-            ForEach(fakeWorkflows) { wf in
-                LogRowC(
-                    workflow: wf,
-                    isExpanded: expandedIDs.contains(wf.id),
-                    matchesSearch: wf.matchesSearch(searchText),
-                    onToggle: { toggleExpand(wf.id) }
-                )
-                .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
-            }
-        }
-    }
-
-    // ──────────────────────────────────────────────
-    // LAYOUT D — Activity feed, one pill per run
-    // Dates: floating sticky chip above each day group
-    // Times: inline at start of each pill
-    // Micro: pill expands to full detail inline on tap,
-    //        unselected pills dim slightly,
-    //        very compact — more runs visible at once
-    // ──────────────────────────────────────────────
-
-    private var layoutD: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(fakeLogSections.enumerated()), id: \.element.id) { si, section in
-                // Floating day badge
-                HStack {
-                    Text(section.dayLabel)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.36))
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Color.white.opacity(0.07)))
-                        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.5))
-                    Spacer()
+            ForEach(filteredSections) { section in
+                HStack(spacing: 0) {
+                    Text(section.dayLabel.uppercased())
+                        .font(.system(size: 9.5, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.white.opacity(0.42))
+                        .frame(width: 72, alignment: .leading)
+                    Rectangle().fill(Color.white.opacity(0.10)).frame(height: 0.5)
                 }
-                .padding(.top, si == 0 ? 0 : 12)
-                .padding(.bottom, 6)
+                .padding(.bottom, 6).padding(.top, 12)
 
-                VStack(spacing: 3) {
+                VStack(spacing: 4) {
                     ForEach(section.workflows) { wf in
-                        LogRowD(
+                        LogRowC_Segment(
                             workflow: wf,
                             isExpanded: expandedIDs.contains(wf.id),
-                            anyExpanded: !expandedIDs.isEmpty,
                             matchesSearch: wf.matchesSearch(searchText),
                             onToggle: { toggleExpand(wf.id) }
                         )
@@ -594,8 +719,275 @@ struct YavenLogView: View {
         }
     }
 
+    // ──────────────────────────────────────────────
+    // LAYOUT D — Hairline Pulse
+    // Dates: section header rule (same as B/C)
+    // Times: monospaced, spring-animate to accent
+    // Micro: left colored rule grows from 0 on hover,
+    //        gradient sweep fills row from leading,
+    //        hairline separator animates to accent tint
+    // ──────────────────────────────────────────────
+
+    private var layoutD: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(filteredSections) { section in
+                HStack(spacing: 0) {
+                    Text(section.dayLabel.uppercased())
+                        .font(.system(size: 9.5, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.white.opacity(0.42))
+                        .frame(width: 72, alignment: .leading)
+                    Rectangle().fill(Color.white.opacity(0.10)).frame(height: 0.5)
+                }
+                .padding(.bottom, 2).padding(.top, 14)
+
+                VStack(spacing: 0) {
+                    ForEach(section.workflows) { wf in
+                        LogRowD_Pulse(
+                            workflow: wf,
+                            isExpanded: expandedIDs.contains(wf.id),
+                            matchesSearch: wf.matchesSearch(searchText),
+                            onToggle: { toggleExpand(wf.id) }
+                        )
+                        .opacity(wf.matchesSearch(searchText) ? 1 : 0.18)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Day filter row
+
+    private var dayFilterRow: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Group {
+                switch logDayFilterStyle {
+                case .pills:   dayFilterPills
+                case .strip:   dayFilterStrip
+                case .stepper: dayFilterStepper
+                }
+            }
+            Spacer(minLength: 6)
+            // Three-dot style switcher
+            HStack(spacing: 6) {
+                ForEach(LogDayFilterStyle.allCases, id: \.rawValue) { style in
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                            logDayFilterStyle = style
+                        }
+                    } label: {
+                        Circle()
+                            .fill(logDayFilterStyle == style
+                                  ? Color.white.opacity(0.60)
+                                  : Color.white.opacity(0.18))
+                            .frame(width: 5, height: 5)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                }
+            }
+        }
+    }
+
+    // Style 1 — time-range pills: All · Today · Week · Month
+    private var dayFilterPills: some View {
+        HStack(spacing: 4) {
+            logDayFilterButton(.all, label: "All")
+            logDayFilterButton(.today, label: "Today")
+            logDayFilterButton(.thisWeek, label: "Week")
+            logDayFilterButton(.thisMonth, label: "Month")
+        }
+    }
+
+    private func logDayFilterButton(_ filter: LogDayFilter, label: String) -> some View {
+        let isSelected = logDayFilter == filter
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                logDayFilter = filter
+            }
+        } label: {
+            Text(label)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.32))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isSelected ? Color.white.opacity(0.16) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(isSelected ? Color.white.opacity(0.24) : Color.clear, lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    // Style 2 — scrollable 14-day calendar strip with data-presence dots
+    private var dayFilterStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                dayStripAllCircle
+                // oldest on left, newest (today) on right
+                ForEach(Array((0..<14).reversed()), id: \.self) { daysAgo in
+                    dayStripDayCircle(daysAgo: daysAgo)
+                }
+            }
+        }
+    }
+
+    private var dayStripAllCircle: some View {
+        let isSelected = logDayFilter == .all
+        let accentBlue = Color(red: 0.22, green: 0.55, blue: 1.0)
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                logDayFilter = .all
+            }
+        } label: {
+            VStack(spacing: 3) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? accentBlue : Color.white.opacity(0.08))
+                        .frame(width: 28, height: 28)
+                    Text("∞")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(isSelected ? .white : Color.white.opacity(0.45))
+                }
+                Text("\(fakeWorkflows.count)")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(isSelected ? .white.opacity(0.85) : .white.opacity(0.25))
+            }
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    private func dayStripDayCircle(daysAgo: Int) -> some View {
+        let filter: LogDayFilter = daysAgo == 0 ? .today : .specificDay(sectionLabel(daysAgo: daysAgo))
+        let isSelected = logDayFilter == filter
+        let count = workflowCountForFilter(filter)
+        let letter = weekdayLetter(daysAgo: daysAgo)
+        let num = calendarDayNumber(daysAgo: daysAgo)
+        let accentBlue = Color(red: 0.22, green: 0.55, blue: 1.0)
+
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                logDayFilter = filter
+            }
+        } label: {
+            VStack(spacing: 3) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? accentBlue : Color.white.opacity(0.06))
+                        .frame(width: 28, height: 28)
+                    VStack(spacing: 0) {
+                        Text(letter)
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundColor(isSelected ? .white.opacity(0.80) : .white.opacity(0.28))
+                        Text(num)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(isSelected ? .white : .white.opacity(count > 0 ? 0.72 : 0.22))
+                    }
+                }
+                Circle()
+                    .fill(count > 0
+                          ? Color(red: 0.24, green: 0.88, blue: 0.62).opacity(0.65)
+                          : Color.clear)
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    // Maps daysAgo offset to the LogSection.dayLabel used in fake data
+    private func sectionLabel(daysAgo: Int) -> String {
+        switch daysAgo {
+        case 0: return "Today"
+        case 1: return "Yesterday"
+        case 2: return "Monday"    // May 19 in fake data
+        default: return "Day-\(daysAgo)"
+        }
+    }
+
+    private func workflowCountForFilter(_ filter: LogDayFilter) -> Int {
+        switch filter {
+        case .all: return fakeWorkflows.count
+        case .today: return fakeLogSections.first { $0.dayLabel == "Today" }?.workflows.count ?? 0
+        case .thisWeek, .thisMonth: return fakeWorkflows.count
+        case .specificDay(let label): return fakeLogSections.first { $0.dayLabel == label }?.workflows.count ?? 0
+        }
+    }
+
+    // Today is Thu May 21 2026 — Thursday = weekday index 5 (Sun=0)
+    private func weekdayLetter(daysAgo: Int) -> String {
+        let letters = ["S", "M", "T", "W", "T", "F", "S"]
+        let weekday = ((5 - daysAgo) % 7 + 7) % 7
+        return letters[weekday]
+    }
+
+    private func calendarDayNumber(daysAgo: Int) -> String {
+        "\(21 - daysAgo)"  // window is May 8–21
+    }
+
+    // Style 3 — stepper: ‹ Today (2) ›
+    private var dayFilterStepper: some View {
+        let allFilters: [LogDayFilter] = [.all, .today, .thisWeek, .thisMonth]
+        let currentIndex = allFilters.firstIndex(of: logDayFilter) ?? 0
+        let label: String = {
+            switch logDayFilter {
+            case .all:
+                return "All (\(fakeWorkflows.count))"
+            case .today:
+                let n = fakeLogSections.first { $0.dayLabel == "Today" }?.workflows.count ?? 0
+                return "Today (\(n))"
+            case .thisWeek:
+                return "This Week (\(fakeWorkflows.count))"
+            case .thisMonth:
+                return "This Month (\(fakeWorkflows.count))"
+            case .specificDay(let d):
+                let n = fakeLogSections.first { $0.dayLabel == d }?.workflows.count ?? 0
+                return "\(d) (\(n))"
+            }
+        }()
+        return HStack(spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                    if currentIndex > 0 { logDayFilter = allFilters[currentIndex - 1] }
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(currentIndex > 0 ? 0.55 : 0.18))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .disabled(currentIndex == 0)
+
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(minWidth: 110, alignment: .center)
+                .animation(.none, value: logDayFilter)
+
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                    if currentIndex < allFilters.count - 1 { logDayFilter = allFilters[currentIndex + 1] }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(currentIndex < allFilters.count - 1 ? 0.55 : 0.18))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .disabled(currentIndex >= allFilters.count - 1)
+        }
+    }
+
     private func toggleExpand(_ id: String) {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+        withAnimation(.easeOut(duration: 0.26)) {
             if expandedIDs.contains(id) { expandedIDs.remove(id) }
             else { expandedIDs.insert(id) }
         }
@@ -692,13 +1084,189 @@ private struct LogRowA: View {
                 .onHover { isHovered = $0 }
                 .pointerCursor()
 
-                if isExpanded {
-                    LogExpandedDetail(workflow: workflow)
-                        .transition(.opacity.combined(with: .offset(y: -6)))
-                }
+                LogExpandedDetail(workflow: workflow)
+                    .frame(height: isExpanded ? nil : 0)
+                    .clipped()
+                    .opacity(isExpanded ? 1 : 0)
+                    .animation(.easeOut(duration: 0.24), value: isExpanded)
             }
             .padding(.leading, 10)
             .padding(.bottom, isExpanded ? 14 : 8)
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout A2 rows (Journal)
+// ═══════════════════════════════════════════════════════
+
+// Editorial feel: prominent title, source accent left strip
+// that springs in height on hover, detail reveals via smooth
+// height clip (no bounce, no sibling jiggle).
+
+private struct LogRowA_Journal: View {
+    let workflow: LogWorkflow
+    let isExpanded: Bool
+    let matchesSearch: Bool
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
+    private var accent: Color { LogSourceStyle.accentColor(workflow.node.source) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                // Source accent strip — springs taller on hover/expand
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(accent.opacity(isExpanded ? 0.88 : (isHovered ? 0.60 : 0.30)))
+                    .frame(width: 2.5)
+                    .padding(.vertical, 8)
+                    .padding(.trailing, 12)
+                    .animation(.easeOut(duration: 0.14), value: isHovered)
+                    .animation(.easeOut(duration: 0.14), value: isExpanded)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    // Timestamp above title
+                    Text(workflow.hourLabel)
+                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                        .foregroundColor(accent.opacity(0.55))
+
+                    HStack(spacing: 8) {
+                        Text(workflow.compactTitle)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white.opacity(isHovered ? 0.96 : 0.84))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .animation(.easeOut(duration: 0.10), value: isHovered)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white.opacity(isExpanded ? 0.50 : 0.22))
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            .animation(.spring(response: 0.28, dampingFraction: 0.76), value: isExpanded)
+                    }
+
+                    // Source icons + flow tag in a single compact row
+                    HStack(spacing: 5) {
+                        ForEach(workflow.sourceTools.prefix(3)) { tool in
+                            LogToolIcon(tool: tool, size: 10, bgSize: 18)
+                        }
+                        Text(workflow.workflowType.uppercased())
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(0.5)
+                            .foregroundColor(accent.opacity(0.50))
+                            .padding(.leading, 2)
+                    }
+                    .opacity(isExpanded ? 0.5 : 1.0)
+                    .animation(.easeOut(duration: 0.12), value: isExpanded)
+                }
+                .padding(.top, 8).padding(.bottom, 10)
+            }
+
+            // Height-reveal expanded detail — no layout jiggle
+            LogExpandedDetail(workflow: workflow)
+                .padding(.leading, 14 + 12)
+                .padding(.bottom, isExpanded ? 12 : 0)
+                .frame(height: isExpanded ? nil : 0)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .animation(.easeOut(duration: 0.24), value: isExpanded)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovered || isExpanded ? Color.white.opacity(0.042) : Color.clear)
+        )
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onTapGesture(perform: onToggle)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout A3 rows (Dots — compact)
+// ═══════════════════════════════════════════════════════
+
+// Ultra-dense single-line rows — ideal for scanning months
+// of history. Source dot pulses on hover. Detail reveals
+// inline without shifting siblings.
+
+private struct LogRowA_Dots: View {
+    let workflow: LogWorkflow
+    let isExpanded: Bool
+    let matchesSearch: Bool
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
+    private var accent: Color { LogSourceStyle.accentColor(workflow.node.source) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                // Source dot — scales on hover (magnetic pulse)
+                Circle()
+                    .fill(accent.opacity(isHovered || isExpanded ? 0.90 : 0.45))
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(isHovered ? 1.25 : 1.0)
+                    .animation(.spring(response: 0.18, dampingFraction: 0.56), value: isHovered)
+                    .padding(.leading, 4).padding(.trailing, 10)
+
+                // Time
+                Text(workflow.hourLabel)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(isExpanded ? accent : .white.opacity(0.36))
+                    .frame(width: 52, alignment: .leading)
+                    .animation(.easeOut(duration: 0.10), value: isExpanded)
+
+                Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1, height: 14)
+                    .padding(.horizontal, 8)
+
+                LogToolIcon(tool: workflow.originTool, size: 14, bgSize: 20)
+                    .padding(.trailing, 7)
+
+                Text(workflow.compactTitle)
+                    .font(.system(size: 12, weight: isHovered || isExpanded ? .medium : .regular))
+                    .foregroundColor(.white.opacity(isHovered || isExpanded ? 0.90 : 0.62))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(.easeOut(duration: 0.09), value: isHovered)
+
+                // Output count badge
+                let count = workflow.outputs.count
+                Text("\(count)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.24))
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                    .padding(.trailing, 5)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white.opacity(isExpanded ? 0.50 : 0.14))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.spring(response: 0.24, dampingFraction: 0.72), value: isExpanded)
+                    .padding(.trailing, 3)
+            }
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isHovered || isExpanded ? Color.white.opacity(0.05) : Color.clear)
+            )
+            .animation(.easeOut(duration: 0.09), value: isHovered)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onToggle)
+            .onHover { isHovered = $0 }
+            .pointerCursor()
+
+            // Height-reveal — expands inline without shifting siblings
+            LogExpandedDetail(workflow: workflow)
+                .padding(.leading, 30)
+                .padding(.bottom, isExpanded ? 6 : 0)
+                .frame(height: isExpanded ? nil : 0)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .animation(.easeOut(duration: 0.22), value: isExpanded)
         }
     }
 }
@@ -724,11 +1292,14 @@ private struct LogRowB: View {
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundColor(isExpanded
                                          ? LogSourceStyle.accentColor(workflow.node.source)
-                                         : .white.opacity(0.42))
+                                         : (isHovered
+                                            ? LogSourceStyle.accentColor(workflow.node.source).opacity(0.65)
+                                            : .white.opacity(0.42)))
+                        .animation(.easeOut(duration: 0.12), value: isHovered)
                         .animation(.easeOut(duration: 0.12), value: isExpanded)
                     let count = workflow.outputs.count
                     Text("\(count) output\(count == 1 ? "" : "s")")
-                        .font(.system(size: 9))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundColor(.white.opacity(0.22))
                 }
                 .frame(width: 68, alignment: .leading)
@@ -742,15 +1313,16 @@ private struct LogRowB: View {
                     .padding(.trailing, 8)
 
                 Text(workflow.compactTitle)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundColor(.white.opacity(0.84))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.88))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Flow tag
-                Text(workflow.workflowType)
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundColor(LogSourceStyle.accentColor(workflow.node.source))
+                Text(workflow.workflowType.uppercased())
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundColor(LogSourceStyle.accentColor(workflow.node.source).opacity(0.80))
                     .lineLimit(1)
                     .padding(.trailing, 6)
 
@@ -770,12 +1342,13 @@ private struct LogRowB: View {
             .onHover { isHovered = $0 }
             .pointerCursor()
 
-            if isExpanded {
-                LogExpandedDetail(workflow: workflow)
-                    .padding(.leading, 76)
-                    .padding(.bottom, 8)
-                    .transition(.opacity.combined(with: .offset(y: -4)))
-            }
+            LogExpandedDetail(workflow: workflow)
+                .padding(.leading, 76)
+                .padding(.bottom, isExpanded ? 8 : 0)
+                .frame(height: isExpanded ? nil : 0)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .animation(.easeOut(duration: 0.24), value: isExpanded)
 
             Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5)
         }
@@ -783,10 +1356,14 @@ private struct LogRowB: View {
 }
 
 // ═══════════════════════════════════════════════════════
-// MARK: - Layout C rows (Cards)
+// MARK: - Layout C rows (Segment — floating glass pills)
 // ═══════════════════════════════════════════════════════
 
-private struct LogRowC: View {
+// Double-bezel floating segment: source-colored left strip
+// spring-animates in height, icon scales on hover, row lifts
+// -1.5px with diffused glow shadow on expand.
+
+private struct LogRowC_Segment: View {
     let workflow: LogWorkflow
     let isExpanded: Bool
     let matchesSearch: Bool
@@ -794,162 +1371,229 @@ private struct LogRowC: View {
 
     @State private var isHovered = false
 
+    private var accent: Color { LogSourceStyle.accentColor(workflow.node.source) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Card header
-            HStack(alignment: .top, spacing: 0) {
-                // Left accent strip
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(LogSourceStyle.accentColor(workflow.node.source))
-                    .frame(width: 3)
-                    .padding(.vertical, 10)
-                    .padding(.trailing, 10)
+            HStack(alignment: .center, spacing: 0) {
+                // Source strip — springs taller on hover/expand
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(accent.opacity(isHovered || isExpanded ? 0.88 : 0.38))
+                    .frame(width: 2.5, height: isHovered || isExpanded ? 36 : 20)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.68), value: isHovered)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.68), value: isExpanded)
+                    .padding(.leading, 10)
+                    .padding(.trailing, 9)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    // Top row: title + date chip
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(workflow.compactTitle)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.90))
-                                .lineLimit(1)
-                            Text(workflow.workflowType)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(LogSourceStyle.accentColor(workflow.node.source))
-                        }
-                        Spacer()
-                        // Date+time in corner
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(workflow.hourLabel)
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.55))
-                            Text(workflow.dayLabel)
-                                .font(.system(size: 9.5))
-                                .foregroundColor(.white.opacity(0.28))
-                        }
-                    }
-
-                    // Source icons always visible
-                    HStack(spacing: 5) {
-                        ForEach(workflow.sourceTools) { tool in
-                            LogToolIcon(tool: tool, size: 12, bgSize: 22)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white.opacity(isExpanded ? 0.50 : 0.22))
-                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                            .animation(.spring(response: 0.26, dampingFraction: 0.7), value: isExpanded)
-                    }
+                // Time column
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(workflow.hourLabel)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundColor(isExpanded
+                                         ? accent
+                                         : accent.opacity(isHovered ? 0.72 : 0.48))
+                        .animation(.easeOut(duration: 0.11), value: isHovered)
+                    let count = workflow.outputs.count
+                    Text("\(count) out")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.20))
                 }
-                .padding(.vertical, 10)
-                .padding(.trailing, 12)
-            }
+                .frame(width: 58, alignment: .leading)
 
-            if isExpanded {
-                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 0.5)
-                    .padding(.horizontal, 12)
-                LogExpandedDetail(workflow: workflow)
-                    .padding(.leading, 13)
-                    .padding(.bottom, 10)
-                    .transition(.opacity.combined(with: .offset(y: -4)))
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(isHovered ? Color.white.opacity(0.085) : Color.white.opacity(0.055))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(isExpanded
-                        ? LogSourceStyle.accentColor(workflow.node.source).opacity(0.30)
-                        : Color.white.opacity(0.08), lineWidth: 0.75)
-        )
-        .shadow(color: .black.opacity(isHovered ? 0.24 : 0.10),
-                radius: isHovered ? 12 : 4, x: 0, y: isHovered ? 4 : 1)
-        .offset(y: isHovered ? -1 : 0)
-        .animation(.spring(response: 0.22, dampingFraction: 0.70), value: isHovered)
-        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .onTapGesture(perform: onToggle)
-        .onHover { isHovered = $0 }
-        .pointerCursor()
-    }
-}
+                // Hairline separator
+                Rectangle().fill(Color.white.opacity(isHovered ? 0.10 : 0.06))
+                    .frame(width: 1, height: 28)
+                    .padding(.horizontal, 10)
+                    .animation(.easeOut(duration: 0.10), value: isHovered)
 
-// ═══════════════════════════════════════════════════════
-// MARK: - Layout D rows (Feed pills)
-// ═══════════════════════════════════════════════════════
-
-private struct LogRowD: View {
-    let workflow: LogWorkflow
-    let isExpanded: Bool
-    let anyExpanded: Bool
-    let matchesSearch: Bool
-    let onToggle: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Pill row
-            HStack(spacing: 8) {
-                // Time chip
-                Text(workflow.hourLabel)
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                    .foregroundColor(isExpanded
-                                     ? LogSourceStyle.accentColor(workflow.node.source)
-                                     : .white.opacity(0.38))
-                    .frame(width: 52, alignment: .trailing)
-                    .animation(.easeOut(duration: 0.10), value: isExpanded)
-
-                // Icon
-                LogToolIcon(tool: workflow.originTool, size: 18, bgSize: 22)
+                // Icon — scales on hover (magnetic feel)
+                LogToolIcon(tool: workflow.originTool, size: 22, bgSize: 26)
+                    .scaleEffect(isHovered ? 1.09 : 1.0)
+                    .animation(.spring(response: 0.20, dampingFraction: 0.58), value: isHovered)
+                    .padding(.trailing, 9)
 
                 // Title
                 Text(workflow.compactTitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(isExpanded ? 0.92 : 0.75))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(isHovered ? 0.96 : 0.82))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .animation(.easeOut(duration: 0.10), value: isExpanded)
+                    .animation(.easeOut(duration: 0.10), value: isHovered)
 
-                // Status: output count dot + flow label
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(LogSourceStyle.accentColor(workflow.node.source))
-                        .frame(width: 5, height: 5)
-                    Text(workflow.workflowType)
-                        .font(.system(size: 9.5))
-                        .foregroundColor(.white.opacity(0.30))
+                // Flow tag + chevron
+                HStack(spacing: 6) {
+                    Text(workflow.workflowType.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(0.55)
+                        .foregroundColor(accent.opacity(isHovered ? 0.80 : 0.55))
                         .lineLimit(1)
+                        .animation(.easeOut(duration: 0.10), value: isHovered)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white.opacity(isExpanded ? 0.60 : 0.20))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.spring(response: 0.26, dampingFraction: 0.70), value: isExpanded)
                 }
+                .padding(.trailing, 10)
             }
-            .padding(.horizontal, 8).padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isExpanded
-                          ? Color.white.opacity(0.08)
-                          : (isHovered ? Color.white.opacity(0.06) : Color.clear))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isExpanded ? Color.white.opacity(0.12) : Color.clear, lineWidth: 0.5)
-            )
-            // Dim non-expanded rows when something else is open
-            .opacity(anyExpanded && !isExpanded ? 0.45 : 1.0)
-            .animation(.easeOut(duration: 0.14), value: isExpanded)
-            .animation(.easeOut(duration: 0.14), value: anyExpanded)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
             .onTapGesture(perform: onToggle)
             .onHover { isHovered = $0 }
             .pointerCursor()
 
-            if isExpanded {
-                LogExpandedDetail(workflow: workflow)
-                    .padding(.leading, 60)  // aligns with title column
-                    .padding(.bottom, 6)
-                    .transition(.opacity.combined(with: .offset(y: -4)))
+            // Height-reveal: always in hierarchy, clips to 0 when collapsed.
+            // easeOut prevents sibling rows from bouncing/jiggling.
+            LogExpandedDetail(workflow: workflow)
+                .padding(.leading, 91)
+                .padding(.trailing, 10)
+                .padding(.bottom, isExpanded ? 10 : 0)
+                .frame(height: isExpanded ? nil : 0)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .animation(.easeOut(duration: 0.24), value: isExpanded)
+        }
+        // Outer shell — fills lightly, double-bezel gradient stroke
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(isHovered ? Color.white.opacity(0.072) : Color.white.opacity(0.040))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(isExpanded ? 0.20 : (isHovered ? 0.15 : 0.08)),
+                            Color.white.opacity(0.03)
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+        )
+        // Diffused lift shadow + source accent glow on expand
+        .shadow(color: .black.opacity(isHovered ? 0.20 : 0.06),
+                radius: isHovered ? 12 : 3, x: 0, y: isHovered ? 4 : 1)
+        .shadow(color: accent.opacity(isExpanded ? 0.13 : 0),
+                radius: 16, x: 0, y: 0)
+        .offset(y: isHovered ? -1.5 : 0)
+        .animation(.spring(response: 0.24, dampingFraction: 0.66), value: isHovered)
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// MARK: - Layout D rows (Pulse — hairline minimal)
+// ═══════════════════════════════════════════════════════
+
+// No card backgrounds. Hairline rules only. On hover a
+// 2px source-color rule springs up from height 0, and a
+// gradient wash sweeps in from the leading edge. The
+// hairline rule itself tints to the source accent.
+
+private struct LogRowD_Pulse: View {
+    let workflow: LogWorkflow
+    let isExpanded: Bool
+    let matchesSearch: Bool
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
+
+    private var accent: Color { LogSourceStyle.accentColor(workflow.node.source) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .leading) {
+                // Gradient sweep — enters from leading on hover/expand
+                LinearGradient(
+                    colors: [accent.opacity(isHovered || isExpanded ? 0.055 : 0), Color.clear],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .animation(.easeOut(duration: 0.18), value: isHovered)
+
+                HStack(alignment: .center, spacing: 0) {
+                    // Left colored rule — springs from zero height on hover
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(accent)
+                        .frame(width: 2, height: isHovered || isExpanded ? 26 : 0)
+                        .animation(.spring(response: 0.22, dampingFraction: 0.62), value: isHovered)
+                        .animation(.spring(response: 0.22, dampingFraction: 0.62), value: isExpanded)
+                        .padding(.leading, 2)
+                        .padding(.trailing, 9)
+
+                    // Time: muted → accent on hover
+                    Text(workflow.hourLabel)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(isExpanded
+                                         ? accent
+                                         : (isHovered ? accent.opacity(0.80) : .white.opacity(0.36)))
+                        .frame(width: 56, alignment: .leading)
+                        .animation(.easeOut(duration: 0.11), value: isHovered)
+
+                    // Separator
+                    Rectangle().fill(Color.white.opacity(isHovered ? 0.09 : 0.05))
+                        .frame(width: 1, height: 22)
+                        .padding(.horizontal, 10)
+                        .animation(.easeOut(duration: 0.10), value: isHovered)
+
+                    // Icon
+                    LogToolIcon(tool: workflow.originTool, size: 18, bgSize: 22)
+                        .padding(.trailing, 8)
+
+                    // Title — weight bumps on hover
+                    Text(workflow.compactTitle)
+                        .font(.system(size: 12.5,
+                                      weight: isHovered || isExpanded ? .semibold : .regular))
+                        .foregroundColor(.white.opacity(isHovered || isExpanded ? 0.94 : 0.68))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .animation(.easeOut(duration: 0.09), value: isHovered)
+
+                    // Flow label
+                    Text(workflow.workflowType.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(0.5)
+                        .foregroundColor(accent.opacity(isHovered || isExpanded ? 0.75 : 0.28))
+                        .lineLimit(1)
+                        .padding(.trailing, 6)
+                        .animation(.easeOut(duration: 0.10), value: isHovered)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white.opacity(isExpanded ? 0.55 : 0.16))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.spring(response: 0.26, dampingFraction: 0.70), value: isExpanded)
+                        .padding(.trailing, 4)
+                }
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onToggle)
+                .onHover { isHovered = $0 }
+                .pointerCursor()
             }
+
+            LogExpandedDetail(workflow: workflow)
+                .padding(.leading, 81)
+                .padding(.bottom, isExpanded ? 6 : 0)
+                .frame(height: isExpanded ? nil : 0)
+                .clipped()
+                .opacity(isExpanded ? 1 : 0)
+                .animation(.easeOut(duration: 0.24), value: isExpanded)
+
+            // Hairline — tints to source accent on hover
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(isHovered || isExpanded ? 0.30 : 0),
+                            Color.white.opacity(0.07)
+                        ],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(height: 0.5)
+                .animation(.easeOut(duration: 0.14), value: isHovered)
         }
     }
 }
@@ -965,9 +1609,10 @@ private struct LogExpandedDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             // Sources row
             HStack(spacing: 5) {
-                Text("Sources")
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.32))
+                Text("SOURCES")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.7)
+                    .foregroundColor(.white.opacity(0.28))
                 ForEach(workflow.sourceTools) { tool in
                     LogToolIconHoverable(tool: tool)
                 }
@@ -982,10 +1627,6 @@ private struct LogExpandedDetail: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(Color.white.opacity(0.038)))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .stroke(Color.white.opacity(0.08), lineWidth: 0.5))
     }
 }
 

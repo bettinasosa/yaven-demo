@@ -156,8 +156,7 @@ private let fakeDeskItems: [DeskItem] = [
 // MARK: - Main view
 
 struct YavenDeskView: View {
-    let closeReviewRequestID: UUID
-    let onReviewStateChange: (Bool) -> Void
+    let onClose: () -> Void
     let onPreferredHeightChange: (CGFloat) -> Void
 
     @State private var approvedIDs: Set<String> = []
@@ -165,7 +164,7 @@ struct YavenDeskView: View {
 
     private enum Layout {
         static let listHeight: CGFloat = 420
-        static let reviewHeight: CGFloat = 620
+        static let reviewHeight: CGFloat = 680
     }
 
     private var visibleItems: [DeskItem] {
@@ -173,29 +172,52 @@ struct YavenDeskView: View {
     }
 
     var body: some View {
-        ZStack {
-            mainList
+        VStack(spacing: 0) {
+            deskHeader
 
-            if let item = viewingArtifact {
-                ArtifactView(
-                    item: item,
-                    onApprove: { approve(item) }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-                .zIndex(1)
+            ZStack {
+                mainList
+
+                if let item = viewingArtifact {
+                    ArtifactView(
+                        item: item,
+                        onApprove: { approve(item) }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(1)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.22), value: viewingArtifact?.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { reportReviewState() }
+        .onAppear { reportPreferredHeight() }
         .onChange(of: viewingArtifact?.id) { _, _ in
-            reportReviewState()
+            reportPreferredHeight()
         }
-        .onChange(of: closeReviewRequestID) { _, _ in
-            closeReviewIfNeeded()
+    }
+
+    private var deskHeader: some View {
+        HStack(spacing: 0) {
+            Button(action: handleBack) {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Desk")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.white.opacity(0.60))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(DeskHeaderButtonStyle())
+            .pointerCursor()
+            .help(viewingArtifact == nil ? "Back to home" : "Back to Desk")
+
+            Spacer()
         }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 10)
     }
 
     private var mainList: some View {
@@ -266,10 +288,35 @@ struct YavenDeskView: View {
         }
     }
 
-    private func reportReviewState() {
+    private func handleBack() {
+        if viewingArtifact != nil {
+            closeReviewIfNeeded()
+        } else {
+            onClose()
+        }
+    }
+
+    private func reportPreferredHeight() {
         let isReviewing = viewingArtifact != nil
-        onReviewStateChange(isReviewing)
         onPreferredHeightChange(isReviewing ? Layout.reviewHeight : Layout.listHeight)
+    }
+}
+
+private struct DeskHeaderButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .animation(.spring(response: 0.18, dampingFraction: 0.72), value: configuration.isPressed)
+    }
+}
+
+private struct DeskActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.84 : 1)
+            .animation(.spring(response: 0.18, dampingFraction: 0.74), value: configuration.isPressed)
     }
 }
 
@@ -323,7 +370,7 @@ private struct DeskCardView: View {
                         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.07)))
                         .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.white.opacity(0.09), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DeskActionButtonStyle())
                 .pointerCursor()
 
                 Button(action: onApprove) {
@@ -332,10 +379,10 @@ private struct DeskCardView: View {
                         .foregroundColor(.white.opacity(0.90))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(item.source.color.opacity(0.28)))
-                        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(item.source.color.opacity(0.35), lineWidth: 0.5))
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.14)))
+                        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.white.opacity(0.18), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DeskActionButtonStyle())
                 .pointerCursor()
             }
         }
@@ -538,10 +585,14 @@ private struct ArtifactView: View {
                     .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(item.source.color.opacity(0.32))
+                            .fill(Color.white.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(DeskActionButtonStyle())
             .pointerCursor()
             .padding(.horizontal, 32)
             .padding(.vertical, 12)

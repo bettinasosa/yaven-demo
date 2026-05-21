@@ -68,8 +68,37 @@ struct OnboardingArrivalOverlayView: View {
                     .ignoresSafeArea()
 
                 let orbCenter = orbCenterInView(geometry: geometry)
+                let clickPos = clickOriginInView(geometry: geometry)
+                let pathDeltaX = orbCenter.x - clickPos.x
+                let pathDeltaY = orbCenter.y - clickPos.y
+                let pathLength = max(90, (pathDeltaX * pathDeltaX + pathDeltaY * pathDeltaY).squareRoot())
+                let pathMidpoint = CGPoint(
+                    x: (orbCenter.x + clickPos.x) / 2,
+                    y: (orbCenter.y + clickPos.y) / 2
+                )
+                let pathAngle = Angle(radians: Double(atan2(pathDeltaY, pathDeltaX)) - Double.pi / 2)
+
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0),
+                                Color.white.opacity(0.16 * coordinator.mascotOpacity),
+                                Color.white.opacity(0)
+                            ],
+                            startPoint: .bottom,
+                            endPoint: .top
+                        )
+                    )
+                    .frame(width: 112, height: pathLength)
+                    .blur(radius: 22)
+                    .rotationEffect(pathAngle)
+                    .position(pathMidpoint)
+                    .opacity(coordinator.mascotAtOrb ? 0.42 : 0.82)
+                    .allowsHitTesting(false)
+
                 Circle()
-                    .stroke(Color.cyan.opacity(coordinator.glowRingOpacity), lineWidth: 1.5)
+                    .stroke(Color.white.opacity(coordinator.glowRingOpacity), lineWidth: 1.5)
                     .frame(
                         width: coordinator.glowRingRadius * 2,
                         height: coordinator.glowRingRadius * 2
@@ -82,17 +111,16 @@ struct OnboardingArrivalOverlayView: View {
                     .blur(radius: 6)
                     .position(orbCenter)
 
-                // Mascot that flies from the tap origin to the orb position.
-                let clickPos = clickOriginInView(geometry: geometry)
-                YavenOnboardingMascotView(
+                // Selected appearance orb that flies from the tap origin to the notch.
+                AppearanceOrb(
                     appearance: coordinator.selectedAppearance,
-                    size: 48
+                    size: 64
                 )
                 .scaleEffect(coordinator.mascotScale)
                 .opacity(coordinator.mascotOpacity)
                 .position(coordinator.mascotAtOrb ? orbCenter : clickPos)
                 .animation(
-                    Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.7),
+                    Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.58),
                     value: coordinator.mascotAtOrb
                 )
             }

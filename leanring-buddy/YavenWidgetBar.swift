@@ -52,10 +52,38 @@ private struct HomeNeedsYouItem: Identifiable {
 
 private enum HomeNeedsYouUrgency { case overdue, today, upcoming }
 
+private enum HomeLayout: String, CaseIterable, Identifiable, Hashable {
+    case commandCenter = "A"
+    case focus         = "B"
+    case recap         = "D"
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .commandCenter: return "Command"
+        case .focus:         return "Focus"
+        case .recap:         return "Recap"
+        }
+    }
+}
+
+private enum DayPickerStyle: Int, CaseIterable { case pills, strip, stepper }
+
 private let homeNeedsYouFakeData: [HomeNeedsYouItem] = [
     HomeNeedsYouItem(logo: .composio("gmail"),       title: "Follow-up to Jamie Chen",    source: "Meeting Loop",      due: "Overdue",   urgency: .overdue),
     HomeNeedsYouItem(logo: .composio("linkedin"),    title: "LinkedIn batch — 10 drafts", source: "LinkedIn Outreach", due: "Due today",  urgency: .today),
     HomeNeedsYouItem(logo: .composio("granola_mcp"), title: "Product sync — notes",        source: "Meeting Loop",      due: "Due today",  urgency: .today),
+]
+
+private struct HomeYavenDoneItem: Identifiable {
+    let id = UUID()
+    let logo: HomeLogo
+    let title: String
+}
+
+private let homeYavenDoneFakeData: [HomeYavenDoneItem] = [
+    HomeYavenDoneItem(logo: .composio("gmail"),       title: "Sorted & labelled 15 emails"),
+    HomeYavenDoneItem(logo: .composio("slack"),       title: "8 Slack reply drafts ready"),
+    HomeYavenDoneItem(logo: .composio("granola_mcp"), title: "Call notes from Jamie Chen saved"),
 ]
 
 // MARK: - Main bar
@@ -85,15 +113,19 @@ struct YavenWidgetBar: View {
     @State private var agentWorkflowToolIconOverrides: [String: String] = [:]
     @State private var hoveredAgentWorkflowID: String? = nil
     @State private var pushedAgentWorkflowID: String? = nil
-    @State private var isApprovalsReviewing = false
-    @State private var approvalsReviewCloseRequestID = UUID()
     @State private var showingChatHistory = false
     @State private var command: String = ""
     @State private var homeNeedsYouItems: [HomeNeedsYouItem] = homeNeedsYouFakeData
+    @State private var homeLayout: HomeLayout = .commandCenter
+    @State private var hoveredRecapItemID: UUID? = nil
+    @State private var focusDayOffset: Int = 0
+    @State private var dayPickerStyle: DayPickerStyle = .pills
+    @State private var chatInputHoverPoint: CGPoint? = nil
     @FocusState private var isCommandFocused: Bool
 
     @State private var iconNavHovered: Int = -1
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(OnboardingAppearance.defaultsKey) private var selectedAppearanceRaw = OnboardingAppearance.defaultAppearance.rawValue
 
     private static let compactHeight: CGFloat        = 380
     private static let chatHeight: CGFloat           = 420
@@ -112,6 +144,10 @@ struct YavenWidgetBar: View {
     private enum Motion {
         static let focus = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.84, blendDuration: 0)
         static let reveal = Animation.easeOut(duration: 0.20)
+    }
+
+    private var selectedAppearance: OnboardingAppearance {
+        OnboardingAppearance.fromStoredRawValue(selectedAppearanceRaw)
     }
 
     var body: some View {
@@ -140,7 +176,6 @@ struct YavenWidgetBar: View {
                 agentWorkflowMode = .overview
                 hoveredAgentWorkflowID = nil
             }
-            if focus != .approvals { isApprovalsReviewing = false }
         }
         // When the shell requests focus (hotkey / notification tap), focus input without switching views.
         .onChange(of: focusCoordinator.focusRequestID) { _, _ in
@@ -190,7 +225,7 @@ struct YavenWidgetBar: View {
             // Icon nav bar
             HStack {
                 HStack(spacing: 4) {
-                    iconNavButton(0, systemImage: "arrow.triangle.branch", label: "Log", focus: .automations)
+                    iconNavButton(0, systemImage: "chart.xyaxis.line", label: "Log", focus: .automations)
                     iconNavButton(1, systemImage: "bolt.fill", label: "Flows", focus: .agents)
                 }
                 Spacer()
@@ -207,9 +242,8 @@ struct YavenWidgetBar: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    homeHeader
-                    homeQuickWinsSection
-                    homeNeedsYouSection
+                    homeLayoutPicker
+                    homeLayoutContent
                     Spacer().frame(height: 24)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -222,17 +256,12 @@ struct YavenWidgetBar: View {
     // MARK: - Home header
 
     private var homeHeader: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(greetingText)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundColor(.white)
-            Text("Tuesday 20 May · 4 meetings today · \(homeNeedsYouItems.count + 3) things need you")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.32))
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 18)
-        .padding(.bottom, 22)
+        Text(greetingText)
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 28)
+            .padding(.top, 18)
+            .padding(.bottom, 22)
     }
 
     private var greetingText: String {
@@ -373,19 +402,23 @@ struct YavenWidgetBar: View {
     }
 
     private func homeActionButton(_ label: String, filled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let textOpacity = filled ? 0.90 : 0.68
+        let fillOpacity = filled ? 0.14 : 0.055
+        let strokeOpacity = filled ? 0.18 : 0.10
+
+        return Button(action: action) {
             Text(label)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(filled ? .white.opacity(0.88) : homePrimaryBlue.opacity(0.90))
+                .foregroundColor(.white.opacity(textOpacity))
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(filled ? Color.white.opacity(0.14) : homePrimaryBlue.opacity(0.10))
+                        .fill(Color.white.opacity(fillOpacity))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(filled ? Color.white.opacity(0.16) : homePrimaryBlue.opacity(0.28), lineWidth: 0.5)
+                        .stroke(Color.white.opacity(strokeOpacity), lineWidth: 0.5)
                 )
                 .fixedSize()
         }
@@ -454,16 +487,16 @@ struct YavenWidgetBar: View {
             } label: {
                 Text("Approve")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(red: 0.40, green: 0.88, blue: 0.60).opacity(0.90))
+                    .foregroundColor(.white.opacity(0.90))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Color(red: 0.40, green: 0.88, blue: 0.60).opacity(0.10))
+                            .fill(Color.white.opacity(0.14))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color(red: 0.40, green: 0.88, blue: 0.60).opacity(0.28), lineWidth: 0.5)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
                     )
                     .fixedSize()
             }
@@ -482,14 +515,517 @@ struct YavenWidgetBar: View {
         }
     }
 
-    // MARK: - Icon nav button (Style F — expanding pill)
+    // MARK: - Home layout picker
 
-    private static let navColors: [Color] = [
-        Color(red: 1.00, green: 0.65, blue: 0.20),  // Log   — orange
-        Color(red: 0.45, green: 0.70, blue: 1.00),  // Flows — blue
-        Color(red: 0.40, green: 0.85, blue: 0.75),  // Chat  — teal
-        Color(red: 1.00, green: 0.40, blue: 0.40),  // Desk  — red
-    ]
+    private var homeLayoutPicker: some View {
+        HStack(spacing: 4) {
+            ForEach(HomeLayout.allCases) { option in
+                let isSelected = homeLayout == option
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        homeLayout = option
+                    }
+                } label: {
+                    HStack(spacing: isSelected ? 4 : 0) {
+                        Text(option.rawValue)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(isSelected ? .white.opacity(0.92) : .white.opacity(0.38))
+                        if isSelected {
+                            Text(option.name)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.white.opacity(0.68))
+                                .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
+                        }
+                    }
+                    .padding(.horizontal, isSelected ? 9 : 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(isSelected ? Color.white.opacity(0.18) : Color.clear, lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: homeLayout)
+    }
+
+    // MARK: - Home layout content switcher
+
+    @ViewBuilder
+    private var homeLayoutContent: some View {
+        switch homeLayout {
+        case .commandCenter:
+            Group {
+                homeHeader
+                homeQuickWinsSection
+                homeNeedsYouSection
+            }
+        case .focus:   homeLayoutB
+        case .recap:   homeLayoutD
+        }
+    }
+
+
+    // MARK: - Home Layout B — Focus
+
+    private var homeLayoutB: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Clock + greeting
+            VStack(alignment: .leading, spacing: 4) {
+                TimelineView(.periodic(from: Date(), by: 30)) { context in
+                    Text(context.date, format: .dateTime.hour().minute())
+                        .font(.system(size: 52, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundColor(.white)
+                }
+                Text(greetingText)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.32))
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 18)
+            .padding(.bottom, 20)
+
+            // Day filter + style dots
+            HStack(alignment: .center, spacing: 0) {
+                Group {
+                    switch dayPickerStyle {
+                    case .pills:   dayFilterPills
+                    case .strip:   dayFilterStrip
+                    case .stepper: dayFilterStepper
+                    }
+                }
+                Spacer(minLength: 8)
+                // Three-dot style switcher
+                HStack(spacing: 6) {
+                    ForEach(DayPickerStyle.allCases, id: \.rawValue) { style in
+                        Button {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                                dayPickerStyle = style
+                            }
+                        } label: {
+                            Circle()
+                                .fill(dayPickerStyle == style
+                                      ? Color.white.opacity(0.60)
+                                      : Color.white.opacity(0.18))
+                                .frame(width: 5, height: 5)
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                    }
+                }
+                .padding(.trailing, 24)
+            }
+            .padding(.bottom, 16)
+
+            // Top priority card
+            if let topItem = homeNeedsYouItems.first {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        homeLogoView(topItem.logo)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Top priority")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(homePrimaryBlue.opacity(0.85))
+                                .tracking(0.5)
+                            Text(topItem.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                    }
+                    HStack(spacing: 6) {
+                        Text(topItem.source)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.32))
+                        Text("·")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.20))
+                        Text(topItem.due)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(dueColor(topItem.urgency))
+                        Spacer()
+                        homeActionButton("Approve", filled: true) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                homeNeedsYouItems.removeAll { $0.id == topItem.id }
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(homePrimaryBlue.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(homePrimaryBlue.opacity(0.18), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 20)
+            } else {
+                Text("Nothing urgent — nice work.")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.30))
+                    .padding(.horizontal, 28)
+            }
+
+            Button { setWidgetFocus(.approvals) } label: {
+                Text("See all on your Desk →")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.28))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .padding(.horizontal, 28)
+            .padding(.top, 18)
+        }
+    }
+
+    // MARK: - Day filter styles
+
+    /// Style 1 — text pills: Today / Tomorrow / This week
+    private var dayFilterPills: some View {
+        HStack(spacing: 5) {
+            ForEach([(0, "Today"), (1, "Tomorrow"), (7, "This week")], id: \.0) { offset, label in
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                        focusDayOffset = offset
+                    }
+                } label: {
+                    Text(label)
+                        .font(.system(size: 11, weight: focusDayOffset == offset ? .semibold : .regular))
+                        .foregroundColor(focusDayOffset == offset ? .white : .white.opacity(0.35))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(focusDayOffset == offset ? Color.white.opacity(0.11) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(focusDayOffset == offset ? Color.white.opacity(0.17) : Color.clear,
+                                        lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+        }
+        .padding(.leading, 20)
+    }
+
+    /// Style 2 — 5-day strip: M T W T F with date circles
+    private var dayFilterStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(focusWeekDays, id: \.offset) { day in
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                        focusDayOffset = day.offset
+                    }
+                } label: {
+                    VStack(spacing: 3) {
+                        Text(day.letter)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(focusDayOffset == day.offset ? .white : .white.opacity(0.28))
+                        ZStack {
+                            Circle()
+                                .fill(focusDayOffset == day.offset
+                                      ? homePrimaryBlue
+                                      : Color.white.opacity(day.isToday ? 0.08 : 0))
+                                .frame(width: 26, height: 26)
+                            Text(day.number)
+                                .font(.system(size: 12,
+                                              weight: focusDayOffset == day.offset ? .bold : .regular))
+                                .foregroundColor(focusDayOffset == day.offset
+                                                 ? .white
+                                                 : .white.opacity(day.isToday ? 0.70 : 0.40))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 44) // leave room for the style dots
+    }
+
+    /// Style 3 — stepper: ◀ Wednesday, 21 May ▶
+    private var dayFilterStepper: some View {
+        HStack(spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                    focusDayOffset -= 1
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(focusDayOffset > -6 ? 0.55 : 0.18))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .disabled(focusDayOffset <= -6)
+
+            Text(focusDayLabel)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(minWidth: 130, alignment: .center)
+                .animation(.none, value: focusDayOffset)
+
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.80)) {
+                    focusDayOffset += 1
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(focusDayOffset < 13 ? 0.55 : 0.18))
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .disabled(focusDayOffset >= 13)
+        }
+        .padding(.leading, 24)
+    }
+
+    // MARK: - Day filter helpers
+
+    private var focusDayLabel: String {
+        if focusDayOffset == 0 { return "Today" }
+        if focusDayOffset == 1 { return "Tomorrow" }
+        if focusDayOffset == -1 { return "Yesterday" }
+        guard let day = Calendar.current.date(byAdding: .day, value: focusDayOffset, to: Date()) else {
+            return ""
+        }
+        return day.formatted(.dateTime.weekday(.wide).day().month())
+    }
+
+    private var focusWeekDays: [(letter: String, number: String, offset: Int, isToday: Bool)] {
+        let cal = Calendar.current
+        let today = Date()
+        let todayStart = cal.startOfDay(for: today)
+        // Start from Monday of current week
+        let weekday = cal.component(.weekday, from: today)
+        let mondayDelta = -((weekday - 2 + 7) % 7)
+        return (0..<5).compactMap { i in
+            guard let day = cal.date(byAdding: .day, value: mondayDelta + i, to: today) else { return nil }
+            let offset = cal.dateComponents([.day], from: todayStart, to: cal.startOfDay(for: day)).day ?? 0
+            let wday = cal.component(.weekday, from: day)
+            let letter = String(cal.shortStandaloneWeekdaySymbols[wday - 1].prefix(1))
+            let number = String(cal.component(.day, from: day))
+            return (letter: letter, number: number, offset: offset, isToday: offset == 0)
+        }
+    }
+
+
+    // MARK: - Home Layout D — Recap
+
+    private var homeLayoutD: some View {
+        let purple = Color(red: 0.75, green: 0.50, blue: 1.00)
+        let green  = Color(red: 0.35, green: 0.85, blue: 0.55)
+        return VStack(alignment: .leading, spacing: 0) {
+
+            // Greeting + day context
+            VStack(alignment: .leading, spacing: 5) {
+                Text(greetingText)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(.white)
+                HStack(spacing: 0) {
+                    Text(Date(), format: .dateTime.weekday(.wide).day().month(.wide))
+                    Text("  ·  4 meetings  ·  \(homeNeedsYouItems.count) to-do")
+                }
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.28))
+                .animation(.spring(response: 0.30, dampingFraction: 0.82), value: homeNeedsYouItems.count)
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
+
+            // Divider
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
+
+            // "To-do today" header with animated countdown
+            HStack(alignment: .center) {
+                Text("To-do today")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(purple.opacity(0.85))
+                Spacer()
+                if !homeNeedsYouItems.isEmpty {
+                    Text("\(homeNeedsYouItems.count)")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundColor(purple.opacity(0.50))
+                        .contentTransition(.numericText(countsDown: true))
+                        .animation(.spring(response: 0.30, dampingFraction: 0.82), value: homeNeedsYouItems.count)
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 6)
+
+            // To-do rows — hover-reveal approve, urgency left bar
+            VStack(spacing: 2) {
+                ForEach(homeNeedsYouItems) { item in
+                    recapToDoRow(item)
+                        .transition(.asymmetric(
+                            insertion: .opacity,
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
+                }
+                if homeNeedsYouItems.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(green.opacity(0.70))
+                        Text("All clear — great work.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.35))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
+            }
+            .animation(.spring(response: 0.32, dampingFraction: 0.84), value: homeNeedsYouItems.map(\.id.uuidString).joined())
+            .padding(.bottom, 16)
+
+            // "Yaven handled" — clearly done, visually receded
+            Text("Yaven handled")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white.opacity(0.25))
+                .tracking(0.3)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 6)
+
+            VStack(spacing: 0) {
+                ForEach(homeYavenDoneFakeData) { item in
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(green.opacity(0.55))
+                        homeLogoView(item.logo)
+                        Text(item.title)
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundColor(.white.opacity(0.35))
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(green.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(green.opacity(0.09), lineWidth: 0.5)
+                    )
+            )
+            .padding(.horizontal, 14)
+            .padding(.bottom, 18)
+        }
+    }
+
+    // Row with urgency left bar, hover lift + background, approve that reveals on hover
+    private func recapToDoRow(_ item: HomeNeedsYouItem) -> some View {
+        let isHovered = hoveredRecapItemID == item.id
+        let urgencyColor = dueColor(item.urgency)
+
+        return HStack(spacing: 0) {
+            // Urgency left bar — brightens on hover
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(urgencyColor.opacity(isHovered ? 0.85 : 0.28))
+                .frame(width: 2.5)
+                .padding(.vertical, 10)
+                .animation(.spring(response: 0.22, dampingFraction: 0.75), value: isHovered)
+
+            HStack(spacing: 10) {
+                homeLogoView(item.logo)
+                    .scaleEffect(isHovered ? 1.06 : 1.0)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.68), value: isHovered)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(isHovered ? 0.95 : 0.82))
+                        .lineLimit(1)
+                        .animation(.easeOut(duration: 0.14), value: isHovered)
+                    HStack(spacing: 0) {
+                        Text(item.source + "  ·  ")
+                            .foregroundColor(.white.opacity(0.25))
+                        Text(item.due)
+                            .foregroundColor(urgencyColor)
+                    }
+                    .font(.system(size: 10))
+                }
+
+                Spacer(minLength: 4)
+
+                // Approve button: ghost at rest → tinted + labelled on hover
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        homeNeedsYouItems.removeAll { $0.id == item.id }
+                    }
+                } label: {
+                    HStack(spacing: isHovered ? 5 : 0) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(isHovered ? urgencyColor : .white.opacity(0.18))
+                        if isHovered {
+                            Text("Approve")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(urgencyColor.opacity(0.90))
+                                .fixedSize()
+                                .transition(.opacity.combined(with: .scale(scale: 0.75, anchor: .leading)))
+                        }
+                    }
+                    .padding(.horizontal, isHovered ? 9 : 4)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(urgencyColor.opacity(isHovered ? 0.10 : 0))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(urgencyColor.opacity(isHovered ? 0.20 : 0), lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(isHovered ? 0.06 : 0))
+        )
+        .offset(y: isHovered ? -1 : 0)
+        .shadow(color: .black.opacity(isHovered ? 0.20 : 0), radius: 8, x: 0, y: 3)
+        .padding(.horizontal, 14)
+        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isHovered)
+        .onHover { hovering in
+            hoveredRecapItemID = hovering ? item.id : nil
+        }
+    }
+
+
+    // MARK: - Icon nav button (Style F — expanding pill)
 
     private func iconNavButton(
         _ index: Int,
@@ -498,44 +1034,46 @@ struct YavenWidgetBar: View {
         focus: WidgetFocus,
         badgeCount: Int = 0
     ) -> some View {
-        let itemColor = index < Self.navColors.count ? Self.navColors[index] : Color.white
         let isActive  = widgetFocus == focus
         let isHovered = iconNavHovered == index
         let expanded  = isActive || isHovered
-
         return Button { setWidgetFocus(focus) } label: {
-            HStack(spacing: expanded ? 5 : 0) {
+            HStack(spacing: expanded ? 7 : 0) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: systemImage)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(isActive ? itemColor : .white.opacity(0.55))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(expanded ? .white.opacity(isActive ? 0.95 : 0.85) : .white.opacity(0.65))
+                        .frame(width: 18, height: 18)
                     if badgeCount > 0 {
                         Text("\(badgeCount)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 3).padding(.vertical, 1)
-                            .background(Capsule().fill(isActive ? itemColor : .orange))
-                            .offset(x: 6, y: -4)
+                            .font(.system(size: 7.5, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundColor(.white.opacity(0.90))
+                            .padding(.horizontal, 3.5)
+                            .padding(.vertical, 1.5)
+                            .background(Capsule().fill(Color.white.opacity(0.22)))
+                            .offset(x: 7, y: -4)
                     }
                 }
+                .frame(width: 18, height: 18, alignment: .leading)
                 if expanded {
                     Text(label)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(isActive ? itemColor : .white.opacity(0.75))
+                        .foregroundColor(isActive ? .white.opacity(0.92) : .white.opacity(0.82))
                         .fixedSize()
                         .transition(.opacity.combined(with: .scale(scale: 0.7, anchor: .leading)))
                 }
             }
-            .padding(.horizontal, expanded ? 10 : 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, expanded ? 10 : 4)
+            .padding(.vertical, expanded ? 6 : 3)
             .background(
                 Capsule()
-                    .fill(isActive
-                          ? itemColor.opacity(0.18)
-                          : (isHovered ? .white.opacity(0.09) : .white.opacity(0.04)))
+                    .fill(expanded
+                          ? (isActive ? Color.white.opacity(0.16) : Color.white.opacity(0.10))
+                          : Color.clear)
                     .overlay(
                         Capsule().strokeBorder(
-                            isActive ? itemColor.opacity(0.35) : .white.opacity(0.07),
+                            expanded ? Color.white.opacity(0.20) : Color.clear,
                             lineWidth: 0.5
                         )
                     )
@@ -543,13 +1081,28 @@ struct YavenWidgetBar: View {
             .animation(.spring(response: 0.30, dampingFraction: 0.68), value: expanded)
             .animation(.spring(response: 0.30, dampingFraction: 0.68), value: isActive)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NavIconButtonStyle())
         .pointerCursor()
         .help(label)
+        .accessibilityLabel(label)
+        .accessibilityHint("Opens \(label)")
         .onHover { h in
             withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                iconNavHovered = h ? index : -1
+                if h {
+                    iconNavHovered = index
+                } else if iconNavHovered == index {
+                    iconNavHovered = -1
+                }
             }
+        }
+    }
+
+    private struct NavIconButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .scaleEffect(configuration.isPressed ? 0.94 : 1)
+                .opacity(configuration.isPressed ? 0.86 : 1)
+                .animation(.spring(response: 0.18, dampingFraction: 0.72), value: configuration.isPressed)
         }
     }
 
@@ -561,6 +1114,13 @@ struct YavenWidgetBar: View {
             return AnyView(
                 expandedContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            )
+        }
+        if widgetFocus == .approvals {
+            return AnyView(
+                expandedContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, Self.expandedHeaderTopOffset)
             )
         }
         return AnyView(
@@ -577,11 +1137,9 @@ struct YavenWidgetBar: View {
     private var expandedHeader: some View {
         HStack(spacing: 0) {
             Button {
-                if widgetFocus == .approvals && isApprovalsReviewing {
-                    approvalsReviewCloseRequestID = UUID()
-                } else if widgetFocus == .agents,
-                          automationDrillIn != nil,
-                          agentWorkflowMode != .overview {
+                if widgetFocus == .agents,
+                   automationDrillIn != nil,
+                   agentWorkflowMode != .overview {
                     withAnimation(Motion.focus) { agentWorkflowMode = .overview }
                     onPreferredHeightChange(Self.automationsHeight)
                 } else if (widgetFocus == .logCall || widgetFocus == .agents), automationDrillIn != nil {
@@ -686,11 +1244,7 @@ struct YavenWidgetBar: View {
             agentsExpandedView
         case .approvals:
             YavenDeskView(
-                closeReviewRequestID: approvalsReviewCloseRequestID,
-                onReviewStateChange: { isReviewing in
-                    guard isApprovalsReviewing != isReviewing else { return }
-                    isApprovalsReviewing = isReviewing
-                },
+                onClose: { setWidgetFocus(.none) },
                 onPreferredHeightChange: onPreferredHeightChange
             )
         case .none:
@@ -772,12 +1326,11 @@ struct YavenWidgetBar: View {
 
     private var emptyChatState: some View {
         VStack(spacing: 14) {
-            YavenOnboardingMascotView(appearance: .black, size: 48)
-                .opacity(0.80)
+            ChatEmptyOrbView(isGlassMode: selectedAppearance.isGlassMode)
 
             Text("What do you need?")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.white.opacity(0.32))
+                .foregroundColor(.white.opacity(0.38))
 
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
@@ -1019,7 +1572,9 @@ struct YavenWidgetBar: View {
     }
 
     private var chatInputBar: some View {
-        HStack(spacing: 8) {
+        let cornerRadius: CGFloat = 22
+
+        return HStack(spacing: 8) {
             TextField("Ask me anything or describe a task…", text: $command)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
@@ -1040,10 +1595,25 @@ struct YavenWidgetBar: View {
                 .pointerCursor()
             }
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 10)
-        .background(Color.white.opacity(0.055))
-        .overlay(Rectangle().frame(height: 0.5).foregroundColor(.white.opacity(0.09)), alignment: .top)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background {
+            ChatInputGlassFill(cornerRadius: cornerRadius, isGlassMode: selectedAppearance.isGlassMode)
+        }
+        .overlay {
+            CursorShineRoundedBorder(cornerRadius: cornerRadius, hoverPoint: chatInputHoverPoint)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 12)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                chatInputHoverPoint = location
+            case .ended:
+                chatInputHoverPoint = nil
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: chatInputHoverPoint == nil)
     }
 
     private func submitCommand() {
@@ -1495,7 +2065,8 @@ struct YavenWidgetBar: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .help("Back")
-                .offset(x: 20, y: 10)
+                .offset(x: 20, y: Self.expandedHeaderTopOffset)
+                .zIndex(Double(agentWorkflowFolders.count) + 2)
 
                 ZStack(alignment: .topLeading) {
                     agentDrawerPerspectiveRails(
@@ -1520,18 +2091,15 @@ struct YavenWidgetBar: View {
                         let centeredX = (drawerWidth - folderWidth) / 2
 
                         agentWorkflowFolderInStack(workflow, index: index, folderWidth: folderWidth)
-                            .rotation3DEffect(
-                                .degrees(agentWorkflowFolderTilt(for: index, isHovered: isHovered, isPushed: isPushed)),
-                                axis: (x: 1.0, y: 0.0, z: 0.0),
-                                anchor: .top,
-                                perspective: 0.52
-                            )
                             .offset(x: centeredX, y: yOff)
                             .zIndex(Double(index))
                             .animation(Motion.focus, value: isHovered)
                             .animation(Motion.focus, value: isPushed)
                             .animation(Motion.focus, value: flickY)
                     }
+
+                    agentDrawerSideRailOverlay(drawerHeight: drawerHeight)
+                        .zIndex(Double(agentWorkflowFolders.count) + 0.5)
 
                     agentDrawerFront(activeWorkflow: activeWorkflow, drawerWidth: drawerWidth)
                         .frame(
@@ -1546,13 +2114,12 @@ struct YavenWidgetBar: View {
                         .zIndex(Double(agentWorkflowFolders.count) + 1)
                 }
                 .frame(width: drawerWidth, height: drawerHeight, alignment: .topLeading)
+                .clipped()
                 .offset(x: drawerX, y: AgentWorkflowDrawerLayout.drawerTopOffset)
             }
             .frame(width: proxy.size.width, height: AgentWorkflowDrawerLayout.totalHeight(for: agentWorkflowFolders.count), alignment: .topLeading)
-            .clipped()
         }
         .frame(height: AgentWorkflowDrawerLayout.totalHeight(for: agentWorkflowFolders.count))
-        .clipped()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -1564,26 +2131,29 @@ struct YavenWidgetBar: View {
         static let maxDrawerWidth: CGFloat        = 780
         static let minDrawerWidth: CGFloat        = 560
         static let horizontalMargin: CGFloat      = 64
-        static let tabHeight: CGFloat             = 31
-        static let tabBottomWidthFraction: CGFloat = 0.46
-        static let tabTopWidthFraction: CGFloat   = 0.38
-        static let folderHeight: CGFloat          = 118
-        static let folderStep: CGFloat            = 54
-        static let stackTopPadding: CGFloat       = 16
+        static let folderBodyWidth: CGFloat       = 415
+        static let folderBodyHeight: CGFloat      = 100
+        static let tabWidth: CGFloat              = 122
+        static let tabHeight: CGFloat             = 35
+        static let folderHeight: CGFloat          = 100
+        static let folderStep: CGFloat            = 57
+        static let stackTopPadding: CGFloat       = 52
+        static let folderPerspectiveWidening: CGFloat = 180
         static let hoverLift: CGFloat             = 5
         static let pushLift: CGFloat              = 10
         static let drawerFrontHeight: CGFloat     = 82
-        static let drawerFrontOverlap: CGFloat    = 62
+        static let drawerFrontOverlap: CGFloat    = 80
         static let drawerFrontClipBleed: CGFloat  = 12
         static let drawerFrontExtraWidth: CGFloat = 70
         static let folderHInset: CGFloat          = 14
-        static let perspectiveNarrowing: CGFloat  = 30
-        static let folderSideSlant: CGFloat       = 24
-        static let folderCornerRadius: CGFloat    = 9
-        static let folderVisibleSideDepth: CGFloat = 25
+        static let folderSideSlant: CGFloat       = 18
+        static let folderCornerRadius: CGFloat    = 10
+        static let tabSideSlant: CGFloat          = 9
+        static let tabCornerRadius: CGFloat       = 5
+        static let tabUnderlap: CGFloat           = 6
         static let folderIconSize: CGFloat        = 18
-        static let folderIconTopOffset: CGFloat   = 35
-        static let folderIconLeading: CGFloat     = 28
+        static let folderIconTabWidth: CGFloat    = 122
+        static let folderTabEdgePadding: CGFloat  = 8
 
         static func stackHeight(for count: Int) -> CGFloat {
             guard count > 0 else { return 0 }
@@ -1630,25 +2200,31 @@ struct YavenWidgetBar: View {
     }
 
     private func agentWorkflowFolderWidth(for index: Int, total: Int, availableWidth: CGFloat) -> CGFloat {
-        let depth = total <= 1 ? 1 : CGFloat(index) / CGFloat(total - 1)
-        let base = availableWidth - AgentWorkflowDrawerLayout.folderHInset * 2
-        return base - AgentWorkflowDrawerLayout.perspectiveNarrowing * (1 - depth)
+        let availableBodyWidth = max(280, availableWidth - AgentWorkflowDrawerLayout.folderHInset * 2)
+        let backWidth = min(AgentWorkflowDrawerLayout.folderBodyWidth, availableBodyWidth)
+        let frontWidth = min(
+            availableBodyWidth,
+            AgentWorkflowDrawerLayout.folderBodyWidth + AgentWorkflowDrawerLayout.folderPerspectiveWidening
+        )
+        guard total > 1 else { return frontWidth }
+        let depth = CGFloat(index) / CGFloat(total - 1)
+        return backWidth + (frontWidth - backWidth) * depth
     }
 
-    private func agentWorkflowFolderTilt(for index: Int, isHovered: Bool, isPushed: Bool) -> Double {
-        guard agentWorkflowFolders.count > 1 else { return 0 }
-        let depth = Double(index) / Double(agentWorkflowFolders.count - 1)
-        let baseTilt = -0.7 + depth * 0.4
-        if isPushed { return baseTilt + 1.0 }
-        return isHovered ? baseTilt + 0.35 : baseTilt
+    private func agentWorkflowIconTabPosition(for index: Int, nameTabPosition: CGFloat) -> CGFloat {
+        if nameTabPosition < 0.38 { return 0.68 }
+        if nameTabPosition > 0.62 { return 0.24 }
+        return index.isMultiple(of: 2) ? 0.22 : 0.74
     }
 
-    private func agentDrawerPerspectiveRails(folderCount _: Int, drawerHeight: CGFloat) -> some View {
+    private func agentDrawerPerspectiveRails(folderCount: Int, drawerHeight: CGFloat) -> some View {
         GeometryReader { proxy in
-            let topY     = agentWorkflowFolderYOffset(for: 0) + AgentWorkflowDrawerLayout.tabHeight
+            let topY     = agentWorkflowFolderYOffset(for: 0)
             let bottomY  = drawerHeight - AgentWorkflowDrawerLayout.drawerFrontHeight + 22
-            let topInset = AgentWorkflowDrawerLayout.folderHInset + AgentWorkflowDrawerLayout.perspectiveNarrowing / 2
-            let bottomInset = -AgentWorkflowDrawerLayout.drawerFrontExtraWidth / 2 + 7
+            let backWidth = agentWorkflowFolderWidth(for: 0, total: folderCount, availableWidth: proxy.size.width)
+            let frontWidth = agentWorkflowFolderWidth(for: max(0, folderCount - 1), total: folderCount, availableWidth: proxy.size.width)
+            let topInset = max(0, (proxy.size.width - backWidth) / 2)
+            let bottomInset = max(0, (proxy.size.width - frontWidth) / 2)
             let leftTopX  = topInset
             let rightTopX = proxy.size.width - topInset
             let leftBotX  = bottomInset
@@ -1692,6 +2268,31 @@ struct YavenWidgetBar: View {
         .allowsHitTesting(false)
     }
 
+    private func agentDrawerSideRailOverlay(drawerHeight: CGFloat) -> some View {
+        GeometryReader { proxy in
+            let topY = agentWorkflowFolderYOffset(for: 0)
+            let bottomY = drawerHeight - AgentWorkflowDrawerLayout.drawerFrontHeight + 22
+            let folderCount = agentWorkflowFolders.count
+            let backWidth = agentWorkflowFolderWidth(for: 0, total: folderCount, availableWidth: proxy.size.width)
+            let frontWidth = agentWorkflowFolderWidth(for: max(0, folderCount - 1), total: folderCount, availableWidth: proxy.size.width)
+            let topInset = max(0, (proxy.size.width - backWidth) / 2)
+            let bottomInset = max(0, (proxy.size.width - frontWidth) / 2)
+            let railStroke = colorScheme == .dark ? Color.white.opacity(0.48) : Color.black.opacity(0.34)
+
+            Path { path in
+                path.move(to: CGPoint(x: topInset, y: topY))
+                path.addLine(to: CGPoint(x: bottomInset, y: bottomY))
+                path.move(to: CGPoint(x: proxy.size.width - topInset, y: topY))
+                path.addLine(to: CGPoint(x: proxy.size.width - bottomInset, y: bottomY))
+            }
+            .stroke(
+                railStroke,
+                style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
     private func agentDrawerFront(activeWorkflow: AgentWorkflowFolder?, drawerWidth _: CGFloat) -> some View {
         let trayBorder: Color = colorScheme == .dark ? .white : .black
         let trayFill = colorScheme == .dark
@@ -1706,6 +2307,10 @@ struct YavenWidgetBar: View {
                     AgentDrawerFrontShape()
                         .stroke(trayBorder.opacity(colorScheme == .dark ? 0.28 : 0.22), lineWidth: 1.0)
                 )
+
+            Rectangle()
+                .fill(trayBorder.opacity(colorScheme == .dark ? 0.34 : 0.26))
+                .frame(height: 1)
 
             HStack(alignment: .center, spacing: 10) {
                 Spacer(minLength: 0)
@@ -1763,6 +2368,27 @@ struct YavenWidgetBar: View {
             : Color(red: 0.87, green: 0.87, blue: 0.90)
         let folderBorder = colorScheme == .dark ? Color.white : Color.black
         let outlineOpacity: Double = (isHovered || isPushed) ? 0.86 : 0.58
+        let nameTabWidth = min(AgentWorkflowDrawerLayout.tabWidth, folderWidth * 0.34)
+        let bodyHeight = AgentWorkflowDrawerLayout.folderBodyHeight
+        let tabTop = -tabH + AgentWorkflowDrawerLayout.tabUnderlap
+        let nameTabCenter = folderWidth * workflow.tabPosition
+        let nameTabLeft = min(
+            max(nameTabCenter - nameTabWidth / 2, AgentWorkflowDrawerLayout.folderTabEdgePadding),
+            folderWidth - nameTabWidth - AgentWorkflowDrawerLayout.folderTabEdgePadding
+        )
+        let iconTabWidth = min(AgentWorkflowDrawerLayout.folderIconTabWidth, folderWidth * 0.34)
+        let iconTabCenter = folderWidth * agentWorkflowIconTabPosition(for: index, nameTabPosition: workflow.tabPosition)
+        let iconTabLeft = min(
+            max(iconTabCenter - iconTabWidth / 2, AgentWorkflowDrawerLayout.folderTabEdgePadding),
+            folderWidth - iconTabWidth - AgentWorkflowDrawerLayout.folderTabEdgePadding
+        )
+        let nameTabFill = workflow.lightTab
+            ? (colorScheme == .dark ? Color.white : Color(red: 0.12, green: 0.12, blue: 0.14))
+            : (colorScheme == .dark ? Color.black : Color(red: 0.76, green: 0.76, blue: 0.80))
+        let iconTabFill = colorScheme == .dark
+            ? Color.black
+            : Color(red: 0.12, green: 0.12, blue: 0.14)
+        let iconTabBorder = colorScheme == .dark ? Color.white.opacity(0.70) : Color.black.opacity(0.48)
 
         return Button {
             withAnimation(.spring(response: 0.18, dampingFraction: 0.70)) {
@@ -1782,22 +2408,64 @@ struct YavenWidgetBar: View {
             }
         } label: {
             ZStack(alignment: .topLeading) {
-                WorkflowDrawerFolderOccluderShape(
-                    sideSlant: AgentWorkflowDrawerLayout.folderSideSlant,
-                    cornerRadius: AgentWorkflowDrawerLayout.folderCornerRadius
+                WorkflowDrawerTrapezoidShape(
+                    topInset: AgentWorkflowDrawerLayout.tabSideSlant,
+                    bottomInset: 0,
+                    cornerRadius: AgentWorkflowDrawerLayout.tabCornerRadius
                 )
-                    .fill(folderFill)
+                .fill(nameTabFill)
+                .frame(width: nameTabWidth, height: tabH)
+                .offset(x: nameTabLeft, y: tabTop)
 
-                WorkflowDrawerFolderOutlineShape(
-                    tabHeight: tabH,
-                    sideSlant: AgentWorkflowDrawerLayout.folderSideSlant,
-                    visibleSideDepth: AgentWorkflowDrawerLayout.folderVisibleSideDepth,
-                    cornerRadius: AgentWorkflowDrawerLayout.folderCornerRadius
+                WorkflowDrawerTrapezoidShape(
+                    topInset: AgentWorkflowDrawerLayout.tabSideSlant,
+                    bottomInset: 0,
+                    cornerRadius: AgentWorkflowDrawerLayout.tabCornerRadius
                 )
                 .stroke(
-                    folderBorder.opacity(outlineOpacity),
-                    style: StrokeStyle(lineWidth: (isHovered || isPushed) ? 1.05 : 0.85, lineCap: .round, lineJoin: .round)
+                    tabBorderColor.opacity(borderOpacity),
+                    style: StrokeStyle(lineWidth: 1.0, lineCap: .round, lineJoin: .round)
                 )
+                .frame(width: nameTabWidth, height: tabH)
+                .offset(x: nameTabLeft, y: tabTop)
+
+                WorkflowDrawerTrapezoidShape(
+                    topInset: AgentWorkflowDrawerLayout.tabSideSlant,
+                    bottomInset: 0,
+                    cornerRadius: AgentWorkflowDrawerLayout.tabCornerRadius
+                )
+                .fill(iconTabFill)
+                .frame(width: iconTabWidth, height: tabH)
+                .offset(x: iconTabLeft, y: tabTop)
+
+                WorkflowDrawerTrapezoidShape(
+                    topInset: AgentWorkflowDrawerLayout.tabSideSlant,
+                    bottomInset: 0,
+                    cornerRadius: AgentWorkflowDrawerLayout.tabCornerRadius
+                )
+                .stroke(
+                    iconTabBorder.opacity((isHovered || isPushed) ? 0.94 : 0.72),
+                    style: StrokeStyle(lineWidth: 0.95, lineCap: .round, lineJoin: .round)
+                )
+                .frame(width: iconTabWidth, height: tabH)
+                .offset(x: iconTabLeft, y: tabTop)
+
+                let bodyShape = WorkflowDrawerBodyShape(
+                    bottomInset: AgentWorkflowDrawerLayout.folderSideSlant,
+                    cornerRadius: AgentWorkflowDrawerLayout.folderCornerRadius
+                )
+                bodyShape
+                    .fill(folderFill)
+                    .frame(width: folderWidth, height: bodyHeight)
+                WorkflowDrawerBodyOpenOutlineShape(
+                    bottomInset: AgentWorkflowDrawerLayout.folderSideSlant,
+                    cornerRadius: AgentWorkflowDrawerLayout.folderCornerRadius
+                )
+                    .stroke(
+                        folderBorder.opacity(outlineOpacity),
+                        style: StrokeStyle(lineWidth: (isHovered || isPushed) ? 1.2 : 1.0, lineCap: .round, lineJoin: .round)
+                    )
+                    .frame(width: folderWidth, height: bodyHeight)
 
                 HStack(spacing: 5) {
                     ForEach(Array(workflow.tools.prefix(3))) { tool in
@@ -1808,37 +2476,10 @@ struct YavenWidgetBar: View {
                         )
                     }
                 }
-                .offset(
-                    x: AgentWorkflowDrawerLayout.folderIconLeading,
-                    y: AgentWorkflowDrawerLayout.folderIconTopOffset
-                )
+                .frame(width: iconTabWidth - 16, height: tabH, alignment: .center)
+                .offset(x: iconTabLeft + 8, y: tabTop)
                 .opacity((isHovered || isPushed) ? 1.0 : 0.82)
 
-                WorkflowTabShape(
-                    tabPosition: workflow.tabPosition,
-                    tabHeight: tabH,
-                    topCorner: AgentWorkflowDrawerLayout.folderCornerRadius,
-                    tabBottomFraction: AgentWorkflowDrawerLayout.tabBottomWidthFraction,
-                    tabTopFraction: AgentWorkflowDrawerLayout.tabTopWidthFraction
-                )
-                    .fill(workflow.lightTab
-                          ? (colorScheme == .dark ? Color.white : Color(red: 0.12, green: 0.12, blue: 0.14))
-                          : (colorScheme == .dark ? Color.black : Color(red: 0.76, green: 0.76, blue: 0.80)))
-                WorkflowTabOutlineShape(
-                    tabPosition: workflow.tabPosition,
-                    tabHeight: tabH,
-                    topCorner: AgentWorkflowDrawerLayout.folderCornerRadius,
-                    tabBottomFraction: AgentWorkflowDrawerLayout.tabBottomWidthFraction,
-                    tabTopFraction: AgentWorkflowDrawerLayout.tabTopWidthFraction
-                )
-                    .stroke(
-                        tabBorderColor.opacity(borderOpacity),
-                        style: StrokeStyle(lineWidth: 1.0, lineCap: .round, lineJoin: .round)
-                    )
-
-                let tabBW = folderWidth * AgentWorkflowDrawerLayout.tabBottomWidthFraction
-                let tabCenter = folderWidth * workflow.tabPosition
-                let tabLeft = min(max(tabCenter - tabBW / 2, 8), folderWidth - tabBW - 8)
                 let onLight = workflow.lightTab ? (colorScheme == .dark) : (colorScheme == .light)
                 let idColor: Color   = onLight ? .black.opacity(0.42) : .white.opacity(0.40)
                 let nameColor: Color = onLight ? .black.opacity(0.86) : .white.opacity(0.90)
@@ -1853,8 +2494,8 @@ struct YavenWidgetBar: View {
                         .minimumScaleFactor(0.82)
                         .truncationMode(.tail)
                 }
-                .frame(width: tabBW * 0.92, alignment: .leading)
-                .offset(x: tabLeft + tabBW * 0.04, y: (tabH - 14) / 2)
+                .frame(width: nameTabWidth * 0.90, height: tabH, alignment: .leading)
+                .offset(x: nameTabLeft + nameTabWidth * 0.05, y: tabTop)
             }
             .frame(width: folderWidth, height: AgentWorkflowDrawerLayout.folderHeight, alignment: .topLeading)
             .shadow(
@@ -2108,13 +2749,13 @@ struct YavenWidgetBar: View {
         )
     }
 
-    private func workflowSettingRow(systemImage: String, title: String, value: String, tint: Color) -> some View {
+    private func workflowSettingRow(systemImage: String, title: String, value: String, tint _: Color) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(tint.opacity(0.85))
+                .foregroundColor(.white.opacity(0.72))
                 .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tint.opacity(0.12)))
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.08)))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -2141,9 +2782,9 @@ struct YavenWidgetBar: View {
             HStack(alignment: .center, spacing: 9) {
                 Image(systemName: "person.crop.circle.badge.checkmark")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(workflow.color.opacity(0.85))
+                    .foregroundColor(.white.opacity(0.76))
                     .frame(width: 22, height: 22)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(workflow.color.opacity(0.12)))
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.08)))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Human review")
@@ -2164,14 +2805,14 @@ struct YavenWidgetBar: View {
         .pointerCursor()
     }
 
-    private func workflowSwitch(isOn: Bool, tint: Color) -> some View {
+    private func workflowSwitch(isOn: Bool, tint _: Color) -> some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             Capsule()
-                .fill(isOn ? tint.opacity(0.34) : Color.white.opacity(0.10))
+                .fill(isOn ? Color.white.opacity(0.20) : Color.white.opacity(0.10))
                 .frame(width: 34, height: 18)
 
             Circle()
-                .fill(isOn ? tint : Color.white.opacity(0.38))
+                .fill(isOn ? Color.white.opacity(0.86) : Color.white.opacity(0.38))
                 .frame(width: 14, height: 14)
                 .padding(.horizontal, 2)
         }
@@ -2181,22 +2822,22 @@ struct YavenWidgetBar: View {
     private func workflowIconButton(
         systemImage: String,
         label: String,
-        tint: Color,
+        tint _: Color,
         isProminent: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundColor(isProminent ? .black.opacity(0.82) : tint)
+                .foregroundColor(isProminent ? .black.opacity(0.82) : .white.opacity(0.78))
                 .frame(width: 34, height: 34)
                 .background(
                     Circle()
-                        .fill(isProminent ? tint.opacity(0.95) : Color.white.opacity(0.08))
+                        .fill(isProminent ? Color.white.opacity(0.82) : Color.white.opacity(0.08))
                 )
                 .overlay(
                     Circle()
-                        .strokeBorder(isProminent ? Color.white.opacity(0.18) : tint.opacity(0.24), lineWidth: 0.7)
+                        .strokeBorder(Color.white.opacity(isProminent ? 0.24 : 0.16), lineWidth: 0.7)
                 )
         }
         .buttonStyle(.plain)
@@ -2396,9 +3037,10 @@ struct YavenWidgetBar: View {
                 } label: {
                     Image(systemName: "pencil")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(workflow.color.opacity(0.85))
+                        .foregroundColor(.white.opacity(0.76))
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(workflow.color.opacity(0.12)))
+                        .background(Circle().fill(Color.white.opacity(0.08)))
+                        .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -2678,66 +3320,129 @@ struct YavenWidgetBar: View {
     }
 }
 
-/// Drawer-only occluder. It fills from the row top so later rows cover the lower edges of earlier rows.
-private struct WorkflowDrawerFolderOccluderShape: Shape {
-    var sideSlant: CGFloat
+/// Rounded trapezoid used for drawer bodies and independent tabs.
+private struct WorkflowDrawerTrapezoidShape: Shape {
+    var topInset: CGFloat
+    var bottomInset: CGFloat
     var cornerRadius: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        let safeSlant = min(max(0, sideSlant), rect.width * 0.14)
-        let radius = min(max(0, cornerRadius), safeSlant)
-        let leftTop = rect.minX + safeSlant
-        let rightTop = rect.maxX - safeSlant
+        let safeTopInset = min(max(0, topInset), rect.width * 0.42)
+        let safeBottomInset = min(max(0, bottomInset), rect.width * 0.42)
+        let topLeft = rect.minX + safeTopInset
+        let topRight = rect.maxX - safeTopInset
+        let bottomLeft = rect.minX + safeBottomInset
+        let bottomRight = rect.maxX - safeBottomInset
+        let maxRadius = min(
+            max(0, rect.height / 2),
+            max(0, (topRight - topLeft) / 2),
+            max(0, (bottomRight - bottomLeft) / 2)
+        )
+        let radius = min(max(0, cornerRadius), maxRadius)
 
         var path = Path()
-        path.move(to: CGPoint(x: leftTop + radius, y: rect.minY))
-        path.addLine(to: CGPoint(x: rightTop - radius, y: rect.minY))
+        path.move(to: CGPoint(x: topLeft + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: topRight - radius, y: rect.minY))
         path.addQuadCurve(
-            to: CGPoint(x: rightTop, y: rect.minY + radius),
-            control: CGPoint(x: rightTop, y: rect.minY)
+            to: CGPoint(x: topRight, y: rect.minY + radius),
+            control: CGPoint(x: topRight, y: rect.minY)
         )
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: leftTop, y: rect.minY + radius))
+        path.addLine(to: CGPoint(x: bottomRight, y: rect.maxY - radius))
         path.addQuadCurve(
-            to: CGPoint(x: leftTop + radius, y: rect.minY),
-            control: CGPoint(x: leftTop, y: rect.minY)
+            to: CGPoint(x: bottomRight - radius, y: rect.maxY),
+            control: CGPoint(x: bottomRight, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: bottomLeft + radius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: bottomLeft, y: rect.maxY - radius),
+            control: CGPoint(x: bottomLeft, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: topLeft, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: topLeft + radius, y: rect.minY),
+            control: CGPoint(x: topLeft, y: rect.minY)
         )
         path.closeSubpath()
         return path
     }
 }
 
-/// Drawer-only visible outline: top lip plus short slanted sides, intentionally no bottom border.
-private struct WorkflowDrawerFolderOutlineShape: Shape {
-    var tabHeight: CGFloat
-    var sideSlant: CGFloat
-    var visibleSideDepth: CGFloat
+/// Drawer folder body with a full-width top edge and an inset lower edge.
+private struct WorkflowDrawerBodyShape: Shape {
+    var bottomInset: CGFloat
     var cornerRadius: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        let topY = rect.minY + tabHeight
-        let safeSlant = min(max(0, sideSlant), rect.width * 0.14)
-        let depth = min(max(0, visibleSideDepth), max(0, rect.maxY - topY))
-        let radius = min(max(0, cornerRadius), safeSlant, depth)
-        let leftTop = rect.minX + safeSlant
-        let rightTop = rect.maxX - safeSlant
-        let leftBottom = rect.minX + max(0, safeSlant - depth * 0.45)
-        let rightBottom = rect.maxX - max(0, safeSlant - depth * 0.45)
+        let safeBottomInset = min(max(0, bottomInset), rect.width * 0.42)
+        let topLeft = rect.minX
+        let topRight = rect.maxX
+        let bottomLeft = rect.minX + safeBottomInset
+        let bottomRight = rect.maxX - safeBottomInset
+        let maxRadius = min(
+            max(0, rect.height / 2),
+            max(0, (topRight - topLeft) / 2),
+            max(0, (bottomRight - bottomLeft) / 2)
+        )
+        let radius = min(max(0, cornerRadius), maxRadius)
 
         var path = Path()
-        path.move(to: CGPoint(x: leftBottom, y: topY + depth))
-        path.addLine(to: CGPoint(x: leftTop, y: topY + radius))
+        path.move(to: CGPoint(x: topLeft + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: topRight - radius, y: rect.minY))
         path.addQuadCurve(
-            to: CGPoint(x: leftTop + radius, y: topY),
-            control: CGPoint(x: leftTop, y: topY)
+            to: CGPoint(x: topRight, y: rect.minY + radius),
+            control: CGPoint(x: topRight, y: rect.minY)
         )
-        path.addLine(to: CGPoint(x: rightTop - radius, y: topY))
+        path.addLine(to: CGPoint(x: bottomRight, y: rect.maxY - radius))
         path.addQuadCurve(
-            to: CGPoint(x: rightTop, y: topY + radius),
-            control: CGPoint(x: rightTop, y: topY)
+            to: CGPoint(x: bottomRight - radius, y: rect.maxY),
+            control: CGPoint(x: bottomRight, y: rect.maxY)
         )
-        path.addLine(to: CGPoint(x: rightBottom, y: topY + depth))
+        path.addLine(to: CGPoint(x: bottomLeft + radius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: bottomLeft, y: rect.maxY - radius),
+            control: CGPoint(x: bottomLeft, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: topLeft, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: topLeft + radius, y: rect.minY),
+            control: CGPoint(x: topLeft, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Open folder-body outline: top and sides only, so stacked cards do not expose bottom borders.
+private struct WorkflowDrawerBodyOpenOutlineShape: Shape {
+    var bottomInset: CGFloat
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let safeBottomInset = min(max(0, bottomInset), rect.width * 0.42)
+        let topLeft = rect.minX
+        let topRight = rect.maxX
+        let bottomLeft = rect.minX + safeBottomInset
+        let bottomRight = rect.maxX - safeBottomInset
+        let maxRadius = min(
+            max(0, rect.height / 2),
+            max(0, (topRight - topLeft) / 2),
+            max(0, (bottomRight - bottomLeft) / 2)
+        )
+        let radius = min(max(0, cornerRadius), maxRadius)
+
+        var path = Path()
+        path.move(to: CGPoint(x: bottomLeft, y: rect.maxY - radius))
+        path.addLine(to: CGPoint(x: topLeft, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: topLeft + radius, y: rect.minY),
+            control: CGPoint(x: topLeft, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: topRight - radius, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: topRight, y: rect.minY + radius),
+            control: CGPoint(x: topRight, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: bottomRight, y: rect.maxY - radius))
         return path
     }
 }
@@ -3145,6 +3850,180 @@ private struct PreCallBriefAutomationView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+// MARK: - Chat glass details
+
+private struct ChatInputGlassFill: View {
+    let cornerRadius: CGFloat
+    let isGlassMode: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        return ZStack {
+            if isGlassMode, #available(macOS 26.0, *) {
+                Color.white.opacity(0.001)
+                    .glassEffect(
+                        .clear
+                            .interactive(true)
+                            .tint(Color.white.opacity(0.045)),
+                        in: shape
+                    )
+            } else {
+                shape
+                    .fill(Color.white.opacity(0.050))
+            }
+
+            shape
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.065),
+                            Color.white.opacity(0.018),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        }
+        .clipShape(shape)
+    }
+}
+
+private struct CursorShineRoundedBorder: View {
+    let cornerRadius: CGFloat
+    let hoverPoint: CGPoint?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            let width = max(proxy.size.width, 1)
+            let height = max(proxy.size.height, 1)
+            let point = hoverPoint ?? CGPoint(x: width / 2, y: height / 2)
+            let unitPoint = UnitPoint(
+                x: min(max(point.x / width, 0), 1),
+                y: min(max(point.y / height, 0), 1)
+            )
+
+            ZStack {
+                shape
+                    .strokeBorder(Color.white.opacity(0.095), lineWidth: 0.6)
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(hoverPoint == nil ? 0 : 0.54),
+                        Color.white.opacity(hoverPoint == nil ? 0 : 0.16),
+                        Color.clear
+                    ],
+                    center: unitPoint,
+                    startRadius: 0,
+                    endRadius: max(width, height) * 0.62
+                )
+                .mask(shape.strokeBorder(lineWidth: 1.35))
+                .blendMode(.plusLighter)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct ChatEmptyOrbView: View {
+    let isGlassMode: Bool
+
+    @State private var hoverPoint: CGPoint? = nil
+
+    var body: some View {
+        let size: CGFloat = 56
+
+        return ZStack {
+            if isGlassMode, #available(macOS 26.0, *) {
+                Color.white.opacity(0.001)
+                    .glassEffect(
+                        .clear
+                            .interactive(true)
+                            .tint(Color.white.opacity(0.070)),
+                        in: Circle()
+                    )
+            } else {
+                Circle()
+                    .fill(.ultraThinMaterial)
+            }
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.white.opacity(0.38),
+                            Color.white.opacity(0.14),
+                            Color.white.opacity(0.030)
+                        ],
+                        center: UnitPoint(x: 0.30, y: 0.22),
+                        startRadius: 0,
+                        endRadius: size * 0.72
+                    )
+                )
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.20),
+                            Color.white.opacity(0.055),
+                            Color.clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            Circle()
+                .strokeBorder(Color.white.opacity(0.13), lineWidth: 0.8)
+
+            if let hoverPoint {
+                GeometryReader { proxy in
+                    let width = max(proxy.size.width, 1)
+                    let height = max(proxy.size.height, 1)
+                    let unitPoint = UnitPoint(
+                        x: min(max(hoverPoint.x / width, 0), 1),
+                        y: min(max(hoverPoint.y / height, 0), 1)
+                    )
+
+                    RadialGradient(
+                        colors: [
+                            Color.white.opacity(0.58),
+                            Color.white.opacity(0.18),
+                            Color.clear
+                        ],
+                        center: unitPoint,
+                        startRadius: 0,
+                        endRadius: size * 0.78
+                    )
+                    .mask(Circle().strokeBorder(lineWidth: 1.2))
+                    .blendMode(.plusLighter)
+                }
+            }
+
+            Ellipse()
+                .fill(Color.white.opacity(0.46))
+                .frame(width: size * 0.34, height: size * 0.12)
+                .blur(radius: 2.4)
+                .offset(x: -size * 0.17, y: -size * 0.18)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: .black.opacity(0.18), radius: 9, y: 4)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                hoverPoint = location
+            case .ended:
+                hoverPoint = nil
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: hoverPoint == nil)
+        .accessibilityHidden(true)
     }
 }
 

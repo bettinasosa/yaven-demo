@@ -87,31 +87,73 @@ private struct AppearanceCard: View {
 
     private var cardButton: some View {
         Button(action: onSelect) {
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 let orbSize: CGFloat = isHovering || isSelected ? 96 : 84
-                AppearanceOrb(appearance: appearance, size: orbSize)
-                    // Spec: X 0, Y 8, blur 40, #000000 12% — amplified on hover
-                    .shadow(
-                        color: .black.opacity(isHovering ? 0.22 : (isSelected ? 0.17 : 0.12)),
-                        radius: isHovering ? 32 : 20,
-                        x: 0,
-                        y: isHovering ? 14 : 8
-                    )
+                ZStack(alignment: .topTrailing) {
+                    AppearanceOrb(appearance: appearance, size: orbSize)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    Color.white.opacity(isSelected ? 0.62 : (isHovering ? 0.22 : 0)),
+                                    lineWidth: isSelected ? 1.2 : 0.7
+                                )
+                        )
+                        // Spec: X 0, Y 8, blur 40, #000000 12% — amplified on hover
+                        .shadow(
+                            color: .black.opacity(isHovering ? 0.22 : (isSelected ? 0.17 : 0.12)),
+                            radius: isHovering ? 32 : 20,
+                            x: 0,
+                            y: isHovering ? 14 : 8
+                        )
+
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.black.opacity(0.82))
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(Color.white.opacity(0.92)))
+                            .overlay(Circle().strokeBorder(Color.white.opacity(0.35), lineWidth: 0.7))
+                            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                            .offset(x: 2, y: -2)
+                            .transition(.scale(scale: 0.72).combined(with: .opacity))
+                    }
+                }
+                .frame(height: 102)
 
                 Text(optionTitle)
                     .font(OnboardingDS.Fonts.body(size: 14))
                     .fontWeight(.semibold)
                     .foregroundStyle(titleColor)
+
+                Text(isSelected ? "Selected" : " ")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(isSelected ? 0.72 : 0))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.white.opacity(isSelected ? 0.10 : 0)))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(isSelected ? 0.14 : 0), lineWidth: 0.5))
             }
-            .frame(width: 132, height: 152)
-            .contentShape(Rectangle())
+            .frame(width: 154, height: 178)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(isSelected ? 0.095 : (isHovering ? 0.045 : 0.018)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        Color.white.opacity(isSelected ? 0.42 : (isHovering ? 0.16 : 0.055)),
+                        lineWidth: isSelected ? 1.1 : 0.6
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .offset(y: isHovering ? -5 : 0)
-            .scaleEffect(isHovering ? 1.06 : (isSelected ? 1.02 : 1))
+            .scaleEffect(isHovering ? 1.035 : (isSelected ? 1.015 : 1))
             .animation(.spring(response: 0.30, dampingFraction: 0.70), value: isHovering)
             .animation(OnboardingDS.Animation.standard, value: isSelected)
         }
         .pointerCursor()
         .onHover { isHovering = $0 }
+        .accessibilityLabel("\(optionTitle), \(isSelected ? "selected" : "not selected")")
     }
 
     private var optionTitle: String {
@@ -148,7 +190,7 @@ private struct PopGlassCardStyle: ButtonStyle {
 
 // MARK: - Appearance orbs
 
-private struct AppearanceOrb: View {
+struct AppearanceOrb: View {
     let appearance: OnboardingAppearance
     let size: CGFloat
 

@@ -2,10 +2,11 @@
 //  OnboardingWelcomeView.swift
 //  leanring-buddy
 //
-//  Final onboarding step — Yaven introduces itself, then the notch pill
-//  springs in and floats up into the menu bar to show where Yaven lives.
+//  Final onboarding step — Yaven introduces itself, then the selected orb
+//  lifts into the notch before the main shell opens.
 //
 
+import AppKit
 import SwiftUI
 
 struct OnboardingWelcomeView: View {
@@ -30,6 +31,8 @@ struct OnboardingWelcomeView: View {
     @State private var pillGlow: CGFloat = 0
     @State private var captionOpacity: Double = 0
     @State private var captionEntryOffset: CGFloat = 6
+    @State private var shadeOpacity: Double = 0
+    @State private var focusTrailOpacity: Double = 0
 
     private var firstName: String {
         let name = onboardingManager.userName
@@ -38,6 +41,11 @@ struct OnboardingWelcomeView: View {
 
     var body: some View {
         ZStack {
+            Color.black
+                .opacity(shadeOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
             // Welcome content — fades out when departing
             VStack(spacing: 0) {
                 Spacer()
@@ -48,7 +56,7 @@ struct OnboardingWelcomeView: View {
             .opacity(isDeparting ? 0 : 1)
             .animation(.easeOut(duration: 0.28), value: isDeparting)
 
-            // Departure sequence — pill rising into menu bar
+            // Departure sequence — selected orb rising into the notch.
             VStack(spacing: 14) {
                 Spacer()
                 notchPill
@@ -130,42 +138,59 @@ struct OnboardingWelcomeView: View {
         .padding(.bottom, 38)
     }
 
-    // MARK: - Departure pill
+    // MARK: - Departure orb
 
     private var notchPill: some View {
         ZStack {
-            // Glow halo
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .frame(width: 224, height: 46)
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0),
+                            Color.white.opacity(0.13 * focusTrailOpacity),
+                            Color.white.opacity(0)
+                        ],
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
+                )
+                .frame(width: 118, height: 250)
+                .blur(radius: 18)
+                .offset(y: -48)
+                .opacity(focusTrailOpacity)
+
+            Circle()
+                .fill(Color.white.opacity(0.10))
+                .frame(width: 128, height: 128)
                 .blur(radius: pillGlow)
 
-            // Pill body
-            RoundedRectangle(cornerRadius: 19, style: .continuous)
-                .fill(Color.black)
-                .frame(width: 208, height: 36)
+            AppearanceOrb(appearance: onboardingManager.selectedAppearance, size: 82)
                 .overlay(
-                    HStack(spacing: 9) {
-                        // Orb indicator
-                        ZStack {
-                            Circle()
-                                .fill(Color.white.opacity(0.2))
-                                .frame(width: 16, height: 16)
-                            Circle()
-                                .fill(Color.white.opacity(0.85))
-                                .frame(width: 8, height: 8)
-                        }
-                        Text("Yaven")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.9))
-                            .kerning(0.2)
-                    }
+                    Circle()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.44), Color.white.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.9
+                        )
                 )
-                // Subtle inner highlight
+                .shadow(color: Color.white.opacity(0.16), radius: 18, y: 0)
+                .shadow(color: Color.black.opacity(0.28), radius: 24, y: 10)
+
+            Text("Yaven")
+                .font(OnboardingDS.Fonts.body(size: 12))
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.white.opacity(0.78))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.white.opacity(0.09)))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 19, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.6)
                 )
+                .offset(y: 67)
         }
         .scaleEffect(pillScale)
         .opacity(pillOpacity)
@@ -176,10 +201,10 @@ struct OnboardingWelcomeView: View {
         HStack(spacing: 5) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 10, weight: .medium))
-            Text("Yaven now lives in your menu bar")
+            Text("Yaven is moving to your notch")
                 .font(OnboardingDS.Fonts.body(size: 12))
         }
-        .foregroundStyle(OnboardingDS.Colors.steelHaze.opacity(0.65))
+        .foregroundStyle(Color.white.opacity(0.66))
         .opacity(captionOpacity)
         .offset(y: captionEntryOffset + pillExitOffset * 0.5)
     }
@@ -206,43 +231,49 @@ struct OnboardingWelcomeView: View {
 
     private func startDeparture() {
         guard !isDeparting else { return }
+        let clickOrigin = NSEvent.mouseLocation
         isDeparting = true
 
         // Welcome text fades out (via .animation on isDeparting).
-        // Phase 1 (320ms): pill springs in
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+        withAnimation(.easeOut(duration: 0.24)) {
+            shadeOpacity = 0.42
+        }
+
+        // Phase 1: selected orb springs in with a vertical focus trail.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
             withAnimation(.spring(response: 0.52, dampingFraction: 0.65)) {
                 pillScale = 1.0
                 pillOpacity = 1
                 pillEntryOffset = 0
             }
-            // Glow blooms in sync with the spring
             withAnimation(.easeOut(duration: 0.45)) {
                 pillGlow = 12
+                focusTrailOpacity = 1
             }
         }
 
-        // Phase 2 (750ms): caption fades up into place
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+        // Phase 2: caption fades up into place.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.56) {
             withAnimation(.easeOut(duration: 0.32)) {
                 captionOpacity = 1
                 captionEntryOffset = 0
             }
         }
 
-        // Phase 3 (1650ms): pill + caption float up and dissolve
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.65) {
-            withAnimation(.easeIn(duration: 0.48)) {
+        // Phase 3: orb + caption float up and hand off to the full-screen arrival overlay.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.04) {
+            withAnimation(.easeIn(duration: 0.38)) {
                 pillOpacity = 0
                 captionOpacity = 0
-                pillExitOffset = -140
+                pillExitOffset = -170
                 pillGlow = 0
+                focusTrailOpacity = 0
             }
         }
 
-        // Phase 4 (2150ms): complete onboarding
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
-            onboardingManager.proceedFromWelcome()
+        // Phase 4: complete onboarding and pass the click origin to the arrival overlay.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.34) {
+            onboardingManager.proceedFromWelcome(clickOrigin: clickOrigin)
         }
     }
 }

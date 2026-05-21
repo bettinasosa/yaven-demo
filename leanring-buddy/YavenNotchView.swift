@@ -110,7 +110,7 @@ struct YavenNotchView: View {
     static let panelContentHeight: CGFloat = 380
     static let expandedHeight: CGFloat   = pillHeight + panelContentHeight // Default 414
     private static let minimumPanelContentHeight: CGFloat = 180
-    private static let maximumPanelContentHeight: CGFloat = 620
+    private static let maximumPanelContentHeight: CGFloat = 720
 
     @State private var isHovering = false
     @State private var hoverTask: Task<Void, Never>?
@@ -120,6 +120,7 @@ struct YavenNotchView: View {
     @State private var shineProgress: CGFloat = 0.28
     @State private var preferredPanelContentHeight = Self.panelContentHeight
     @AppStorage(OnboardingAppearance.defaultsKey) private var selectedAppearanceRaw = OnboardingAppearance.defaultAppearance.rawValue
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     // Corner radii from boring.notch cornerRadiusInsets
     private var topCornerRadius: CGFloat    { interpolate(from: 6, to: 19)  }
@@ -221,22 +222,15 @@ struct YavenNotchView: View {
     @ViewBuilder
     private var notchBackground: some View {
         if selectedAppearance.isGlassMode {
-            ZStack {
-                glassSurface
-                glassLensTint
-                glassSurfaceHighlights
-
-                LinearGradient(
-                    colors: [
-                        Color.clear,
-                        Color.white.opacity(interpolate(from: 0.10, to: 0.16)),
-                        Color.white.opacity(interpolate(from: 0.04, to: 0.08)),
-                        Color.clear
-                    ],
-                    startPoint: UnitPoint(x: shineProgress - 0.44, y: -0.10),
-                    endPoint: UnitPoint(x: shineProgress + 0.24, y: 1.06)
-                )
-                .blendMode(.plusLighter)
+            if reduceTransparency {
+                Color(red: 0.035, green: 0.035, blue: 0.04)
+            } else {
+                ZStack {
+                    glassSurface
+                    glassLensTint
+                    glassSurfaceHighlights
+                    glassSweepHighlight
+                }
             }
         } else {
             Color.black
@@ -251,12 +245,13 @@ struct YavenNotchView: View {
         )
 
         if #available(macOS 26.0, *) {
-            // Native Liquid Glass — .regular gives the standard bright Apple glass preset.
-            // No dark tint overlays; the system handles surface rendering.
+            // Native Liquid Glass, smoked just enough to keep Yaven's white chrome
+            // readable over arbitrary desktop content.
             Color.white.opacity(0.001)
                 .glassEffect(
                     .regular
-                        .interactive(true),
+                        .interactive(true)
+                        .tint(Color.black.opacity(interpolate(from: 0.16, to: 0.22))),
                     in: shape
                 )
         } else {
@@ -299,49 +294,106 @@ struct YavenNotchView: View {
         }
     }
 
-    private var glassSurfaceHighlights: some View {
-        ZStack {
+    @ViewBuilder
+    private var glassSweepHighlight: some View {
+        if #available(macOS 26.0, *) {
             LinearGradient(
                 colors: [
-                    Color.white.opacity(interpolate(from: 0.12, to: 0.18)),
-                    Color.white.opacity(0.030),
+                    Color.clear,
+                    Color.white.opacity(interpolate(from: 0.028, to: 0.046)),
+                    Color.white.opacity(interpolate(from: 0.012, to: 0.024)),
                     Color.clear
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: UnitPoint(x: shineProgress - 0.44, y: -0.10),
+                endPoint: UnitPoint(x: shineProgress + 0.24, y: 1.06)
             )
-
-            RadialGradient(
-                colors: [
-                    Color.white.opacity(interpolate(from: 0.12, to: 0.18)),
-                    Color(red: 0.86, green: 0.90, blue: 0.92).opacity(interpolate(from: 0.05, to: 0.08)),
-                    Color.clear
-                ],
-                center: UnitPoint(x: 0.16, y: 0.02),
-                startRadius: 4,
-                endRadius: interpolate(from: 160, to: 420)
-            )
-
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+        } else {
             LinearGradient(
                 colors: [
-                    Color.white.opacity(interpolate(from: 0.12, to: 0.18)),
+                    Color.clear,
+                    Color.white.opacity(interpolate(from: 0.10, to: 0.16)),
+                    Color.white.opacity(interpolate(from: 0.04, to: 0.08)),
                     Color.clear
                 ],
-                startPoint: .top,
-                endPoint: UnitPoint(x: 0.5, y: 0.34)
+                startPoint: UnitPoint(x: shineProgress - 0.44, y: -0.10),
+                endPoint: UnitPoint(x: shineProgress + 0.24, y: 1.06)
             )
-
-            RadialGradient(
-                colors: [
-                    Color.white.opacity(interpolate(from: 0.08, to: 0.12)),
-                    Color.clear
-                ],
-                center: UnitPoint(x: 0.88, y: 0.90),
-                startRadius: 0,
-                endRadius: interpolate(from: 140, to: 360)
-            )
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
         }
-        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var glassSurfaceHighlights: some View {
+        if #available(macOS 26.0, *) {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(interpolate(from: 0.035, to: 0.055)),
+                        Color.white.opacity(0.012),
+                        Color.clear
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(interpolate(from: 0.045, to: 0.065)),
+                        Color.clear
+                    ],
+                    center: UnitPoint(x: 0.16, y: 0.02),
+                    startRadius: 4,
+                    endRadius: interpolate(from: 150, to: 360)
+                )
+            }
+            .allowsHitTesting(false)
+        } else {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(interpolate(from: 0.12, to: 0.18)),
+                        Color.white.opacity(0.030),
+                        Color.clear
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(interpolate(from: 0.12, to: 0.18)),
+                        Color(red: 0.86, green: 0.90, blue: 0.92).opacity(interpolate(from: 0.05, to: 0.08)),
+                        Color.clear
+                    ],
+                    center: UnitPoint(x: 0.16, y: 0.02),
+                    startRadius: 4,
+                    endRadius: interpolate(from: 160, to: 420)
+                )
+
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(interpolate(from: 0.12, to: 0.18)),
+                        Color.clear
+                    ],
+                    startPoint: .top,
+                    endPoint: UnitPoint(x: 0.5, y: 0.34)
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(interpolate(from: 0.08, to: 0.12)),
+                        Color.clear
+                    ],
+                    center: UnitPoint(x: 0.88, y: 0.90),
+                    startRadius: 0,
+                    endRadius: interpolate(from: 140, to: 360)
+                )
+            }
+            .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder

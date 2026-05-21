@@ -20,7 +20,7 @@ final class OnboardingArrivalCoordinator: ObservableObject {
     @Published var isBreathingEnabled = false
     @Published var breathingRingOpacity: Double = 1
 
-    // Flying mascot animation — travels from click origin to orb position.
+    // Flying appearance orb animation — travels from click origin to notch position.
     @Published var mascotOpacity: Double = 0
     @Published var mascotScale: CGFloat = 0.5
     @Published var mascotAtOrb: Bool = false
@@ -43,88 +43,80 @@ final class OnboardingArrivalCoordinator: ObservableObject {
         onboardingContentOpacity = 1
         washOpacity = 0
 
-        withAnimation(.easeOut(duration: 0.6)) {
+        withAnimation(.easeOut(duration: 0.28)) {
             onboardingContentOpacity = 0
         }
 
-        Task {
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            withAnimation(.easeOut(duration: 0.6)) {
-                washOpacity = 0.7
+        sequenceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.28)) {
+                washOpacity = 0.72
             }
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            try? await Task.sleep(nanoseconds: 360_000_000)
+            guard !Task.isCancelled else { return }
             state = .waitingInDarkness
-            try? await Task.sleep(nanoseconds: 300_000_000)
         }
     }
 
     func startOrbBloom() {
         sequenceTask?.cancel()
         state = .bloomingOrb
+        washOpacity = max(washOpacity, 0.72)
         glowRingRadius = 0
-        glowRingOpacity = 0.4
+        glowRingOpacity = 0.34
         orbScale = 0.5
         orbOpacity = 0
         innerLightOpacity = 0
         mascotAtOrb = false
         mascotOpacity = 0
-        mascotScale = 0.5
+        mascotScale = 0.82
+        isBreathingEnabled = false
 
-        Task {
-            // Fade the flying mascot in at the click origin.
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            withAnimation(.easeIn(duration: 0.12)) {
+        sequenceTask = Task { @MainActor in
+            // Fade the selected orb in at the click origin.
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.12)) {
                 mascotOpacity = 1
             }
 
-            // Launch the mascot toward the orb position with a spring-like curve.
-            try? await Task.sleep(nanoseconds: 60_000_000)
-            withAnimation(Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.7)) {
+            // Launch the selected orb toward the notch with a short focus pull.
+            try? await Task.sleep(nanoseconds: 70_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.58)) {
                 mascotAtOrb = true
-                mascotScale = 1.0
+                mascotScale = 0.52
+                glowRingRadius = 108
+                innerLightOpacity = 0.24
             }
 
-            // Glow ring expands as the mascot arrives.
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            withAnimation(Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.8)) {
-                glowRingRadius = 120
-                glowRingOpacity = 0
-            }
-
-            // Reveal the real orb and dissolve the flying mascot.
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            withAnimation(Animation.timingCurve(0.16, 1, 0.3, 1, duration: 0.6)) {
+            // Give the notch position a brief bloom, then open the main panel.
+            try? await Task.sleep(nanoseconds: 430_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                glowRingOpacity = 0.12
                 orbScale = 1
                 orbOpacity = 1
-            }
-            withAnimation(.easeOut(duration: 0.25)) {
-                mascotOpacity = 0
+                innerLightOpacity = 0.42
             }
 
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            withAnimation(.easeInOut(duration: 0.4)) {
-                innerLightOpacity = 0.6
-            }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            withAnimation(.easeInOut(duration: 0.2)) {
-                innerLightOpacity = 0.1
-            }
-
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            state = .settled
-            isBreathingEnabled = true
-            startBreathingAnimation()
-
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            withAnimation(.easeOut(duration: 0.6)) {
-                washOpacity = 0
-            }
-
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
             state = .panelOpen
             onPanelSummon?()
 
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            withAnimation(.easeOut(duration: 0.34)) {
+                washOpacity = 0
+                mascotOpacity = 0
+                glowRingOpacity = 0
+                innerLightOpacity = 0
+            }
+
+            try? await Task.sleep(nanoseconds: 340_000_000)
+            guard !Task.isCancelled else { return }
+            isBreathingEnabled = true
+            startBreathingAnimation()
             onSequenceFinished?()
         }
     }
